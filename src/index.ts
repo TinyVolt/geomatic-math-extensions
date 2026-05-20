@@ -1,1 +1,1 @@
-export * from './my-function';
+export * from './probability';
