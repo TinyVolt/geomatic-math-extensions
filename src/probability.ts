@@ -12,15 +12,17 @@ export const NormalPDF: ExtensionDef<typeof OUTPUT_TYPE> = {
     ],
     outputType: OUTPUT_TYPE,
 
-    compute: (inputObject) => {
-        const x     = +inputObject.x;
-        const mu    = +inputObject.mu;
-        const sigma = +inputObject.sigma;
-        const pdf = (1 / (sigma * Math.sqrt(2 * Math.PI))) *
-                    Math.exp(-0.5 * Math.pow((x - mu) / sigma, 2));
-        return { main: { type: 'Scalar', value: pdf } }
+    compute: ({ x, mu, sigma }) => {
+        // z = (x - mu) / sigma
+        const z = div(sub(x, mu), sigma);
+        // exp(-0.5 * z^2)  ≡  E ^ (-0.5 * z^2)
+        const expPart = pow(Math.E, mul(-0.5, pow(z, 2)));
+        // 1 / (sigma * sqrt(2π))
+        const coeff = div(1, mul(sigma, Math.sqrt(2 * Math.PI)));
+        return { main: { type: 'Scalar', value: mul(coeff, expPart) } };
     }
 }
+
 
 export const UniformPDF: ExtensionDef<typeof OUTPUT_TYPE> = {
     name: 'Uniform PDF',

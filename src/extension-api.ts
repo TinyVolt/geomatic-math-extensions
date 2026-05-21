@@ -1,16 +1,115 @@
+// ===========================================================================
+// Symbolic IR for differentiable extensions
+// ===========================================================================
+//
+// To make an extension differentiable (usable with `\backprop`), build any
+// numeric output field with the math builders declared below instead of with
+// raw `+`, `-`, `*`, `/`, `Math.sin`, etc. Each builder records a SymExpr
+// node; the host evaluates the recorded graph at forward-eval time and
+// re-evaluates it under JAX tracers at backprop time.
+
+/** Op names recognised by the symbolic evaluator. */
+export type SymOp =
+    // Unary
+    | 'sqrt' | 'sin' | 'cos' | 'tan' | 'asin' | 'acos' | 'atan'
+    | 'log'  | 'log10' | 'abs' | 'sign' | 'floor' | 'ceil' | 'round' | 'neg'
+    // Binary
+    | 'add' | 'sub' | 'mul' | 'div' | 'pow' | 'atan2' | 'mod'
+    | 'minimum' | 'maximum'
+    | 'lt' | 'le' | 'gt' | 'ge' | 'eq' | 'ne'
+    // Ternary
+    | 'where';
+
+/** A symbolic expression node. Returned by every math builder. */
+export type SymExpr =
+    | { __sym: 'leaf';  ref: string }
+    | { __sym: 'const'; value: number }
+    | { __sym: 'op';    op: SymOp; args: SymExpr[] };
+
+/**
+ * A numeric field that may be either a plain number (non-differentiable,
+ * cheap forward eval) or a SymExpr built via the math builders
+ * (differentiable through `\backprop`).
+ *
+ * All node types in this module use `Differentiable` wherever the original
+ * shape uses a single number, so authors can write either form.
+ */
+export type Differentiable = number | SymExpr;
+
+// ===========================================================================
+// Math builders — pre-injected as globals in the worker scope.
+// Do NOT import them; just call them.
+// ===========================================================================
+//
+// Inputs to a builder may be plain numbers, branchable Number-instances
+// (this is how scalar inputs and Point.x / Point.y arrive in compute), or
+// already-built SymExprs. The builders auto-lift.
+
+declare global {
+    // Unary
+    function sqrt  (a: Differentiable): SymExpr;
+    function sin   (a: Differentiable): SymExpr;
+    function cos   (a: Differentiable): SymExpr;
+    function tan   (a: Differentiable): SymExpr;
+    function asin  (a: Differentiable): SymExpr;
+    function acos  (a: Differentiable): SymExpr;
+    function atan  (a: Differentiable): SymExpr;
+    function log   (a: Differentiable): SymExpr;
+    function log10 (a: Differentiable): SymExpr;
+    function abs   (a: Differentiable): SymExpr;
+    function sign  (a: Differentiable): SymExpr;
+    function floor (a: Differentiable): SymExpr;
+    function ceil  (a: Differentiable): SymExpr;
+    function round (a: Differentiable): SymExpr;
+    function neg   (a: Differentiable): SymExpr;
+
+    // Binary
+    function add     (a: Differentiable, b: Differentiable): SymExpr;
+    function sub     (a: Differentiable, b: Differentiable): SymExpr;
+    function mul     (a: Differentiable, b: Differentiable): SymExpr;
+    function div     (a: Differentiable, b: Differentiable): SymExpr;
+    function pow     (a: Differentiable, b: Differentiable): SymExpr;
+    function atan2   (y: Differentiable, x: Differentiable): SymExpr;
+    function mod     (a: Differentiable, b: Differentiable): SymExpr;
+    function minimum (a: Differentiable, b: Differentiable): SymExpr;
+    function maximum (a: Differentiable, b: Differentiable): SymExpr;
+
+    // Comparisons — return 0 or 1, intended as the `cond` to `where`.
+    function lt (a: Differentiable, b: Differentiable): SymExpr;
+    function le (a: Differentiable, b: Differentiable): SymExpr;
+    function gt (a: Differentiable, b: Differentiable): SymExpr;
+    function ge (a: Differentiable, b: Differentiable): SymExpr;
+    function eq (a: Differentiable, b: Differentiable): SymExpr;
+    function ne (a: Differentiable, b: Differentiable): SymExpr;
+
+    // Ternary — differentiable selector. Gradient flows through the chosen branch.
+    function where (
+        cond: Differentiable,
+        a:    Differentiable,
+        b:    Differentiable
+    ): SymExpr;
+}
+
+// ===========================================================================
+// Geometric node types
+// ===========================================================================
+//
+// Numeric leaf fields are typed as `Differentiable` (= number | SymExpr) so
+// authors can drop a builder result into them directly.
+
 export interface Node {
     type: string;
-};
+}
 
 export interface PointNode extends Node {
     type: 'Point';
-    x: number;
-    y: number;
+    x: Differentiable;
+    y: Differentiable;
 }
 
 export interface ScalarNode extends Node {
     type: 'Scalar';
-    value: number;
+    value: Differentiable;
     grad?: number;
 }
 
@@ -74,25 +173,30 @@ export interface ArrayNode extends Node {
 }
 
 export interface NodeTypeMap {
-    Point: PointNode;
-    Scalar: ScalarNode;
-    Triangle: TriangleNode;
-    Line: LineNode;
-    Circle: CircleNode;
-    Ellipse: EllipseNode;
+    Point:           PointNode;
+    Scalar:          ScalarNode;
+    Triangle:        TriangleNode;
+    Line:            LineNode;
+    Circle:          CircleNode;
+    Ellipse:         EllipseNode;
     BezierQuadratic: BezierQuadraticNode;
-    BezierCubic: BezierCubicNode;
-    Arc: ArcNode;
-    Dummy: DummyNode;
-    Array: ArrayNode;
+    BezierCubic:     BezierCubicNode;
+    Arc:             ArcNode;
+    Dummy:           DummyNode;
+    Array:           ArrayNode;
 }
 
 type NodeType = keyof NodeTypeMap;
+
 export interface CustomNode extends Node {
     [key: string]: any;
 }
 
 export type GeometricNode = NodeTypeMap[keyof NodeTypeMap] | CustomNode;
+
+// ===========================================================================
+// Extension definition
+// ===========================================================================
 
 export interface Param {
     argName: string;
@@ -108,3 +212,8 @@ export interface ExtensionDef<T extends string = string> {
     outputType: T;
     compute: (args: Record<string, any>) => Record<string, GeometricNode>;
 }
+
+// Keep the `export {}` if this file has no other exports — needed so the
+// `declare global` block is treated as a module augmentation rather than a
+// script-scope global redeclaration. Since this file already exports types,
+// nothing extra is needed.
