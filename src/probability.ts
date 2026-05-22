@@ -34,12 +34,10 @@ export const UniformPDF: ExtensionDef<typeof OUTPUT_TYPE> = {
     ],
     outputType: OUTPUT_TYPE,
 
-    compute: (inputObject) => {
-        const x = +inputObject.x;
-        const a = +inputObject.a;
-        const b = +inputObject.b;
-        const pdf = (x >= a && x <= b) ? (1 / (b - a)) : 0;
-        return { main: { type: 'Scalar', value: pdf } }
+    compute: ({ x, a, b }) => {
+        const inRange = mul(ge(x, a), le(x, b));
+        const pdf = where(inRange, div(1, sub(b, a)), 0);
+        return { main: { type: 'Scalar', value: pdf } };
     }
 }
 
@@ -52,11 +50,9 @@ export const ExponentialPDF: ExtensionDef<typeof OUTPUT_TYPE> = {
     ],
     outputType: OUTPUT_TYPE,
 
-    compute: (inputObject) => {
-        const x      = +inputObject.x;
-        const lambda = +inputObject.lambda;
-        const pdf = (x >= 0) ? lambda * Math.exp(-lambda * x) : 0;
-        return { main: { type: 'Scalar', value: pdf } }
+    compute: ({ x, lambda }) => {
+        const pdf = where(ge(x, 0), mul(lambda, pow(Math.E, neg(mul(lambda, x)))), 0);
+        return { main: { type: 'Scalar', value: pdf } };
     }
 }
 
@@ -70,13 +66,10 @@ export const NormalCDF: ExtensionDef<typeof OUTPUT_TYPE> = {
     ],
     outputType: OUTPUT_TYPE,
 
-    compute: (inputObject) => {
-        const x     = +inputObject.x;
-        const mu    = +inputObject.mu;
-        const sigma = +inputObject.sigma;
-        const z = (x - mu) / sigma;
-        const cdf = 0.5 * (1 + erf(z / Math.sqrt(2)));
-        return { main: { type: 'Scalar', value: cdf } }
+    compute: ({ x, mu, sigma }) => {
+        const z = div(sub(x, mu), sigma);
+        const cdf = mul(0.5, add(1, erf(div(z, Math.sqrt(2)))));
+        return { main: { type: 'Scalar', value: cdf } };
     }
 }
 
@@ -90,19 +83,12 @@ export const UniformCDF: ExtensionDef<typeof OUTPUT_TYPE> = {
     ],
     outputType: OUTPUT_TYPE,
 
-    compute: (inputObject) => {
-        const x = +inputObject.x;
-        const a = +inputObject.a;
-        const b = +inputObject.b;
-        let cdf: number;
-        if (x < a) {
-            cdf = 0;
-        } else if (x >= b) {
-            cdf = 1;
-        } else {
-            cdf = (x - a) / (b - a);
-        }
-        return { main: { type: 'Scalar', value: cdf } }
+    compute: ({ x, a, b }) => {
+        const belowA = lt(x, a);
+        const aboveB = ge(x, b);
+        const inRange = div(sub(x, a), sub(b, a));
+        const cdf = where(belowA, 0, where(aboveB, 1, inRange));
+        return { main: { type: 'Scalar', value: cdf } };
     }
 }
 
@@ -115,11 +101,9 @@ export const ExponentialCDF: ExtensionDef<typeof OUTPUT_TYPE> = {
     ],
     outputType: OUTPUT_TYPE,
 
-    compute: (inputObject) => {
-        const x      = +inputObject.x;
-        const lambda = +inputObject.lambda;
-        const cdf = (x >= 0) ? (1 - Math.exp(-lambda * x)) : 0;
-        return { main: { type: 'Scalar', value: cdf } }
+    compute: ({ x, lambda }) => {
+        const cdf = where(ge(x, 0), sub(1, pow(Math.E, neg(mul(lambda, x)))), 0);
+        return { main: { type: 'Scalar', value: cdf } };
     }
 }
 
@@ -177,16 +161,16 @@ export const LogNormalPDF: ExtensionDef<typeof OUTPUT_TYPE> = {
     ],
     outputType: OUTPUT_TYPE,
 
-    compute: (inputObject) => {
-        const x     = +inputObject.x;
-        const mu    = +inputObject.mu;
-        const sigma = +inputObject.sigma;
-        if (x <= 0) {
-            return { main: { type: 'Scalar', value: 0 } };
-        }
-        const pdf = (1 / (x * sigma * Math.sqrt(2 * Math.PI))) *
-                    Math.exp(-Math.pow(Math.log(x) - mu, 2) / (2 * sigma * sigma));
-        return { main: { type: 'Scalar', value: pdf } }
+    compute: ({ x, mu, sigma }) => {
+        const pdf = where(
+            gt(x, 0),
+            mul(
+                div(1, mul(x, mul(sigma, Math.sqrt(2 * Math.PI)))),
+                pow(Math.E, neg(div(pow(sub(log(x), mu), 2), mul(2, mul(sigma, sigma)))))
+            ),
+            0
+        );
+        return { main: { type: 'Scalar', value: pdf } };
     }
 }
 
@@ -200,12 +184,9 @@ export const CauchyPDF: ExtensionDef<typeof OUTPUT_TYPE> = {
     ],
     outputType: OUTPUT_TYPE,
 
-    compute: (inputObject) => {
-        const x     = +inputObject.x;
-        const x0    = +inputObject.x0;
-        const gamma = +inputObject.gamma;
-        const pdf = 1 / (Math.PI * gamma * (1 + Math.pow((x - x0) / gamma, 2)));
-        return { main: { type: 'Scalar', value: pdf } }
+    compute: ({ x, x0, gamma }) => {
+        const pdf = div(1, mul(Math.PI, mul(gamma, add(1, pow(div(sub(x, x0), gamma), 2)))));
+        return { main: { type: 'Scalar', value: pdf } };
     }
 }
 
@@ -219,15 +200,16 @@ export const WeibullPDF: ExtensionDef<typeof OUTPUT_TYPE> = {
     ],
     outputType: OUTPUT_TYPE,
 
-    compute: (inputObject) => {
-        const x      = +inputObject.x;
-        const lambda = +inputObject.lambda;
-        const k      = +inputObject.k;
-        if (x < 0) {
-            return { main: { type: 'Scalar', value: 0 } };
-        }
-        const pdf = (k / lambda) * Math.pow(x / lambda, k - 1) * Math.exp(-Math.pow(x / lambda, k));
-        return { main: { type: 'Scalar', value: pdf } }
+    compute: ({ x, lambda, k }) => {
+        const pdf = where(
+            ge(x, 0),
+            mul(
+                div(k, lambda),
+                mul(pow(div(x, lambda), sub(k, 1)), pow(Math.E, neg(pow(div(x, lambda), k))))
+            ),
+            0
+        );
+        return { main: { type: 'Scalar', value: pdf } };
     }
 }
 
@@ -320,14 +302,13 @@ export const LogNormalCDF: ExtensionDef<typeof OUTPUT_TYPE> = {
     ],
     outputType: OUTPUT_TYPE,
 
-    compute: (inputObject) => {
-        const x     = +inputObject.x;
-        const mu    = +inputObject.mu;
-        const sigma = +inputObject.sigma;
-        if (x <= 0) return { main: { type: 'Scalar', value: 0 } };
-        const z = (Math.log(x) - mu) / sigma;
-        const cdf = 0.5 * (1 + erf(z / Math.sqrt(2)));
-        return { main: { type: 'Scalar', value: cdf } }
+    compute: ({ x, mu, sigma }) => {
+        const cdf = where(
+            gt(x, 0),
+            mul(0.5, add(1, erf(div(sub(log(x), mu), sigma)))),
+            0
+        );
+        return { main: { type: 'Scalar', value: cdf } };
     }
 }
 
@@ -341,12 +322,9 @@ export const CauchyCDF: ExtensionDef<typeof OUTPUT_TYPE> = {
     ],
     outputType: OUTPUT_TYPE,
 
-    compute: (inputObject) => {
-        const x     = +inputObject.x;
-        const x0    = +inputObject.x0;
-        const gamma = +inputObject.gamma;
-        const cdf = (1 / Math.PI) * Math.atan((x - x0) / gamma) + 0.5;
-        return { main: { type: 'Scalar', value: cdf } }
+    compute: ({ x, x0, gamma }) => {
+        const cdf = add(mul(div(1, Math.PI), atan(div(sub(x, x0), gamma))), 0.5);
+        return { main: { type: 'Scalar', value: cdf } };
     }
 }
 
@@ -360,13 +338,9 @@ export const WeibullCDF: ExtensionDef<typeof OUTPUT_TYPE> = {
     ],
     outputType: OUTPUT_TYPE,
 
-    compute: (inputObject) => {
-        const x      = +inputObject.x;
-        const lambda = +inputObject.lambda;
-        const k      = +inputObject.k;
-        if (x < 0) return { main: { type: 'Scalar', value: 0 } };
-        const cdf = 1 - Math.exp(-Math.pow(x / lambda, k));
-        return { main: { type: 'Scalar', value: cdf } }
+    compute: ({ x, lambda, k }) => {
+        const cdf = where(ge(x, 0), sub(1, pow(Math.E, neg(pow(div(x, lambda), k)))), 0);
+        return { main: { type: 'Scalar', value: cdf } };
     }
 }
 
@@ -411,18 +385,19 @@ export const StudentTCDF: ExtensionDef<typeof OUTPUT_TYPE> = {
     }
 }
 
-function erf(x: number): number {
-    const sign = x >= 0 ? 1 : -1;
-    x = Math.abs(x);
-    const a1 =  0.254829592;
+function erf(x: any): any {
+    const sign = where(ge(x, 0), 1, -1);
+    const absX = abs(x);
+    const a1 = 0.254829592;
     const a2 = -0.284496736;
-    const a3 =  1.421413741;
+    const a3 = 1.421413741;
     const a4 = -1.453152027;
-    const a5 =  1.061405429;
-    const p  =  0.3275911;
-    const t = 1.0 / (1.0 + p * x);
-    const y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-x * x);
-    return sign * y;
+    const a5 = 1.061405429;
+    const p = 0.3275911;
+    const t = div(1, add(1, mul(p, absX)));
+    const poly = mul(t, add(a1, mul(t, add(a2, mul(t, add(a3, mul(t, add(a4, mul(t, a5)))))))));    
+    const y = sub(1, mul(poly, pow(Math.E, neg(mul(absX, absX)))));
+    return mul(sign, y);
 }
 
 function gamma(z: number): number {
