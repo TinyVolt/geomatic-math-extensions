@@ -35,8 +35,10 @@ export const UniformPDF: ExtensionDef<typeof OUTPUT_TYPE> = {
     outputType: OUTPUT_TYPE,
 
     compute: ({ x, a, b }) => {
-        const inRange = mul(ge(x, a), le(x, b));
-        const pdf = where(inRange, div(1, sub(b, a)), 0);
+        if (x < a || x > b) {
+            return { main: { type: 'Scalar', value: 0 } };
+        }
+        const pdf = div(1, sub(b, a));
         return { main: { type: 'Scalar', value: pdf } };
     }
 }
@@ -267,7 +269,8 @@ export const BetaCDF: ExtensionDef<typeof OUTPUT_TYPE> = {
         const b = +inputObject.b;
         if (x <= 0) return { main: { type: 'Scalar', value: 0 } };
         if (x >= 1) return { main: { type: 'Scalar', value: 1 } };
-        const cdf = incompleteBeta(x, a, b) / beta(a, b);
+        
+        const cdf = incompleteBeta(x, a, b);
         return { main: { type: 'Scalar', value: cdf } }
     }
 }
@@ -444,28 +447,41 @@ function lowerIncompleteGamma(s: number, x: number): number {
 
 function incompleteBeta(x: number, a: number, b: number): number {
     if (x <= 0) return 0;
-    if (x >= 1) return beta(a, b);
+    if (x >= 1) return 1;
+
+    // Symmetry transformation to ensure continued fraction convergence
+    if (x > (a + 1) / (a + b + 2)) {
+        return 1 - incompleteBeta(1 - x, b, a);
+    }
+
     const lbeta = Math.log(beta(a, b));
     const front = Math.exp(Math.log(x) * a + Math.log(1 - x) * b - lbeta) / a;
+    
     let f = 1, c = 1, d = 0;
-    for (let i = 0; i <= 100; i++) {
-        const m = i / 2;
+    
+    // Corrected: Loop starts at 1
+    for (let i = 1; i <= 100; i++) {
+        const m = Math.floor(i / 2); // Corrected: Integer division
         let numerator: number;
-        if (i === 0) {
-            numerator = 1;
-        } else if (i % 2 === 0) {
+        
+        if (i % 2 === 0) {
             numerator = (m * (b - m) * x) / ((a + 2 * m - 1) * (a + 2 * m));
         } else {
             numerator = -((a + m) * (a + b + m) * x) / ((a + 2 * m) * (a + 2 * m + 1));
         }
+        
         d = 1 + numerator * d;
         if (Math.abs(d) < 1e-30) d = 1e-30;
         d = 1 / d;
+        
         c = 1 + numerator / c;
         if (Math.abs(c) < 1e-30) c = 1e-30;
+        
         const cd = c * d;
         f *= cd;
+        
         if (Math.abs(1 - cd) < 1e-10) break;
     }
+    
     return front * f;
 }
