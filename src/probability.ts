@@ -35,10 +35,8 @@ export const UniformPDF: ExtensionDef<typeof OUTPUT_TYPE> = {
     outputType: OUTPUT_TYPE,
 
     compute: ({ x, a, b }) => {
-        if (x < a || x > b) {
-            return { main: { type: 'Scalar', value: 0 } };
-        }
-        const pdf = div(1, sub(b, a));
+        const inRange = mul(ge(x, a), le(x, b));
+        const pdf = where(inRange, div(1, sub(b, a)), 0);
         return { main: { type: 'Scalar', value: pdf } };
     }
 }
