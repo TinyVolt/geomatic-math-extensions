@@ -1,4 +1,13 @@
 import { ExtensionDef } from "./extension-api";
+import {
+    probit,
+    erf,
+    gamma,
+    beta,
+    lowerIncompleteGamma,
+    incompleteBeta,
+    uniformFromSeed,
+} from "./utils/probability-utils";
 
 const OUTPUT_TYPE = 'Scalar'
 
@@ -22,7 +31,6 @@ export const NormalPDF: ExtensionDef<typeof OUTPUT_TYPE> = {
         return { main: { type: 'Scalar', value: mul(coeff, expPart) } };
     }
 }
-
 
 export const UniformPDF: ExtensionDef<typeof OUTPUT_TYPE> = {
     name: 'Uniform PDF',
@@ -53,57 +61,6 @@ export const ExponentialPDF: ExtensionDef<typeof OUTPUT_TYPE> = {
     compute: ({ x, lambda }) => {
         const pdf = where(ge(x, 0), mul(lambda, pow(Math.E, neg(mul(lambda, x)))), 0);
         return { main: { type: 'Scalar', value: pdf } };
-    }
-}
-
-export const NormalCDF: ExtensionDef<typeof OUTPUT_TYPE> = {
-    name: 'Normal CDF',
-    keyword: 'prob-normal-cdf',
-    parameters: [
-        { argName: 'x',     type: 'Scalar', defaultValue: 0, variadic: false },
-        { argName: 'mu',    type: 'Scalar', defaultValue: 0, variadic: false },
-        { argName: 'sigma', type: 'Scalar', defaultValue: 1, variadic: false },
-    ],
-    outputType: OUTPUT_TYPE,
-
-    compute: ({ x, mu, sigma }) => {
-        const z = div(sub(x, mu), sigma);
-        const cdf = mul(0.5, add(1, erf(div(z, Math.sqrt(2)))));
-        return { main: { type: 'Scalar', value: cdf } };
-    }
-}
-
-export const UniformCDF: ExtensionDef<typeof OUTPUT_TYPE> = {
-    name: 'Uniform CDF',
-    keyword: 'prob-uniform-cdf',
-    parameters: [
-        { argName: 'x', type: 'Scalar', defaultValue: 0, variadic: false },
-        { argName: 'a', type: 'Scalar', defaultValue: 0, variadic: false },
-        { argName: 'b', type: 'Scalar', defaultValue: 1, variadic: false },
-    ],
-    outputType: OUTPUT_TYPE,
-
-    compute: ({ x, a, b }) => {
-        const belowA = lt(x, a);
-        const aboveB = ge(x, b);
-        const inRange = div(sub(x, a), sub(b, a));
-        const cdf = where(belowA, 0, where(aboveB, 1, inRange));
-        return { main: { type: 'Scalar', value: cdf } };
-    }
-}
-
-export const ExponentialCDF: ExtensionDef<typeof OUTPUT_TYPE> = {
-    name: 'Exponential CDF',
-    keyword: 'prob-exponential-cdf',
-    parameters: [
-        { argName: 'x',      type: 'Scalar', defaultValue: 0, variadic: false },
-        { argName: 'lambda', type: 'Scalar', defaultValue: 1, variadic: false },
-    ],
-    outputType: OUTPUT_TYPE,
-
-    compute: ({ x, lambda }) => {
-        const cdf = where(ge(x, 0), sub(1, pow(Math.E, neg(mul(lambda, x)))), 0);
-        return { main: { type: 'Scalar', value: cdf } };
     }
 }
 
@@ -251,6 +208,78 @@ export const StudentTPDF: ExtensionDef<typeof OUTPUT_TYPE> = {
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// CDF Implementations
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const NormalCDF: ExtensionDef<typeof OUTPUT_TYPE> = {
+    name: 'Normal CDF',
+    keyword: 'prob-normal-cdf',
+    parameters: [
+        { argName: 'x',     type: 'Scalar', defaultValue: 0, variadic: false },
+        { argName: 'mu',    type: 'Scalar', defaultValue: 0, variadic: false },
+        { argName: 'sigma', type: 'Scalar', defaultValue: 1, variadic: false },
+    ],
+    outputType: OUTPUT_TYPE,
+
+    compute: ({ x, mu, sigma }) => {
+        const z = div(sub(x, mu), sigma);
+        const cdf = mul(0.5, add(1, erf(div(z, Math.sqrt(2)))));
+        return { main: { type: 'Scalar', value: cdf } };
+    }
+}
+
+export const NormalInverseCDF: ExtensionDef<typeof OUTPUT_TYPE> = {
+    name: 'Normal Inverse CDF',
+    keyword: 'prob-normal-invcdf',
+    parameters: [
+        { argName: 'p',     type: 'Scalar', defaultValue: 0.5, variadic: false },
+        { argName: 'mu',    type: 'Scalar', defaultValue: 0,   variadic: false },
+        { argName: 'sigma', type: 'Scalar', defaultValue: 1,   variadic: false },
+    ],
+    outputType: OUTPUT_TYPE,
+
+    compute: ({ p, mu, sigma }) => {
+        // The quantile is only defined for p in (0, 1); outside it returns ±∞.
+        if (+p <= 0 || +p >= 1) return { main: { type: 'Dummy' } };
+        return { main: { type: 'Scalar', value: add(mu, mul(sigma, probit(p))) } };
+    }
+}
+
+export const UniformCDF: ExtensionDef<typeof OUTPUT_TYPE> = {
+    name: 'Uniform CDF',
+    keyword: 'prob-uniform-cdf',
+    parameters: [
+        { argName: 'x', type: 'Scalar', defaultValue: 0, variadic: false },
+        { argName: 'a', type: 'Scalar', defaultValue: 0, variadic: false },
+        { argName: 'b', type: 'Scalar', defaultValue: 1, variadic: false },
+    ],
+    outputType: OUTPUT_TYPE,
+
+    compute: ({ x, a, b }) => {
+        const belowA = lt(x, a);
+        const aboveB = ge(x, b);
+        const inRange = div(sub(x, a), sub(b, a));
+        const cdf = where(belowA, 0, where(aboveB, 1, inRange));
+        return { main: { type: 'Scalar', value: cdf } };
+    }
+}
+
+export const ExponentialCDF: ExtensionDef<typeof OUTPUT_TYPE> = {
+    name: 'Exponential CDF',
+    keyword: 'prob-exponential-cdf',
+    parameters: [
+        { argName: 'x',      type: 'Scalar', defaultValue: 0, variadic: false },
+        { argName: 'lambda', type: 'Scalar', defaultValue: 1, variadic: false },
+    ],
+    outputType: OUTPUT_TYPE,
+
+    compute: ({ x, lambda }) => {
+        const cdf = where(ge(x, 0), sub(1, pow(Math.E, neg(mul(lambda, x)))), 0);
+        return { main: { type: 'Scalar', value: cdf } };
+    }
+}
+
 export const BetaCDF: ExtensionDef<typeof OUTPUT_TYPE> = {
     name: 'Beta CDF',
     keyword: 'prob-beta-cdf',
@@ -386,100 +415,50 @@ export const StudentTCDF: ExtensionDef<typeof OUTPUT_TYPE> = {
     }
 }
 
-function erf(x: any): any {
-    const sign = where(ge(x, 0), 1, -1);
-    const absX = abs(x);
-    const a1 = 0.254829592;
-    const a2 = -0.284496736;
-    const a3 = 1.421413741;
-    const a4 = -1.453152027;
-    const a5 = 1.061405429;
-    const p = 0.3275911;
-    const t = div(1, add(1, mul(p, absX)));
-    const poly = mul(t, add(a1, mul(t, add(a2, mul(t, add(a3, mul(t, add(a4, mul(t, a5)))))))));    
-    const y = sub(1, mul(poly, pow(Math.E, neg(mul(absX, absX)))));
-    return mul(sign, y);
+// ─────────────────────────────────────────────────────────────────────────────
+// Sampling Implementations
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Each sample is drawn by the inverse-CDF (a.k.a. reparameterization) method:
+// take a fixed uniform draw u ∈ (0, 1) and push it through the quantile
+// function. Because u is held constant for a given `seed`, the output is a
+// differentiable function of the distribution parameters — gradients flow
+// through e.g. `mu`/`sigma`, matching the rest of this module. Vary `seed` to
+// draw a different (but reproducible) sample.
+
+export const UniformSample: ExtensionDef<typeof OUTPUT_TYPE> = {
+    name: 'Uniform Sample',
+    keyword: 'prob-uniform-sample',
+    parameters: [
+        { argName: 'a',    type: 'Scalar', defaultValue: 0, variadic: false },
+        { argName: 'b',    type: 'Scalar', defaultValue: 1, variadic: false },
+        { argName: 'seed', type: 'Scalar', defaultValue: 0, variadic: false },
+    ],
+    outputType: OUTPUT_TYPE,
+
+    compute: ({ a, b, seed }) => {
+        const u = uniformFromSeed(+seed);
+        // a + (b - a) * u  — differentiable in a and b.
+        const value = add(a, mul(sub(b, a), u));
+        return { main: { type: 'Scalar', value } };
+    }
 }
 
-function gamma(z: number): number {
-    if (z < 0.5) {
-        return Math.PI / (Math.sin(Math.PI * z) * gamma(1 - z));
-    }
-    z -= 1;
-    const g = 7;
-    const coef = [
-        0.99999999999980993,
-        676.5203681218851,
-        -1259.1392167224028,
-        771.32342877765313,
-        -176.61502916214059,
-        12.507343278686905,
-        -0.13857109526572012,
-        9.9843695780195716e-6,
-        1.5056327351493116e-7
-    ];
-    let x = coef[0];
-    for (let i = 1; i < g + 2; i++) {
-        x += coef[i] / (z + i);
-    }
-    const t = z + g + 0.5;
-    return Math.sqrt(2 * Math.PI) * Math.pow(t, z + 0.5) * Math.exp(-t) * x;
-}
+export const NormalSample: ExtensionDef<typeof OUTPUT_TYPE> = {
+    name: 'Normal Sample',
+    keyword: 'prob-normal-sample',
+    parameters: [
+        { argName: 'mu',    type: 'Scalar', defaultValue: 0, variadic: false },
+        { argName: 'sigma', type: 'Scalar', defaultValue: 1, variadic: false },
+        { argName: 'seed',  type: 'Scalar', defaultValue: 0, variadic: false },
+    ],
+    outputType: OUTPUT_TYPE,
 
-function beta(a: number, b: number): number {
-    return gamma(a) * gamma(b) / gamma(a + b);
-}
-
-function lowerIncompleteGamma(s: number, x: number): number {
-    if (x <= 0) return 0;
-    if (s <= 0) return 0;
-    let sum = 0;
-    let term = 1 / s;
-    for (let n = 0; n < 100; n++) {
-        sum += term;
-        term *= x / (s + n + 1);
-        if (Math.abs(term) < 1e-10) break;
+    compute: ({ mu, sigma, seed }) => {
+        const u = uniformFromSeed(+seed);
+        // mu + sigma * Φ⁻¹(u)  — the reparameterization trick; differentiable
+        // in mu and sigma. u ∈ (0, 1) keeps probit finite.
+        const value = add(mu, mul(sigma, probit(u)));
+        return { main: { type: 'Scalar', value } };
     }
-    return Math.pow(x, s) * Math.exp(-x) * sum;
-}
-
-function incompleteBeta(x: number, a: number, b: number): number {
-    if (x <= 0) return 0;
-    if (x >= 1) return 1;
-
-    // Symmetry transformation to ensure continued fraction convergence
-    if (x > (a + 1) / (a + b + 2)) {
-        return 1 - incompleteBeta(1 - x, b, a);
-    }
-
-    const lbeta = Math.log(beta(a, b));
-    const front = Math.exp(Math.log(x) * a + Math.log(1 - x) * b - lbeta) / a;
-    
-    let f = 1, c = 1, d = 0;
-    
-    // Corrected: Loop starts at 1
-    for (let i = 1; i <= 100; i++) {
-        const m = Math.floor(i / 2); // Corrected: Integer division
-        let numerator: number;
-        
-        if (i % 2 === 0) {
-            numerator = (m * (b - m) * x) / ((a + 2 * m - 1) * (a + 2 * m));
-        } else {
-            numerator = -((a + m) * (a + b + m) * x) / ((a + 2 * m) * (a + 2 * m + 1));
-        }
-        
-        d = 1 + numerator * d;
-        if (Math.abs(d) < 1e-30) d = 1e-30;
-        d = 1 / d;
-        
-        c = 1 + numerator / c;
-        if (Math.abs(c) < 1e-30) c = 1e-30;
-        
-        const cd = c * d;
-        f *= cd;
-        
-        if (Math.abs(1 - cd) < 1e-10) break;
-    }
-    
-    return front * f;
 }
