@@ -6,7 +6,13 @@
 // using the mulberry32 hash. Deterministic so a sampled point stays put across
 // re-evaluations; the result is clamped off the endpoints so it remains a valid
 // input to quantile functions (e.g. probit) that blow up at 0 and 1.
+//
+// A negative seed requests a non-reproducible draw: it is replaced with a fresh
+// random seed so each evaluation yields a different sample.
 export function uniformFromSeed(seed: number): number {
+    if (seed < 0) {
+        seed = Math.floor(Math.random() * 4294967296);
+    }
     let t = (Math.floor(seed) + 0x6D2B79F5) | 0;
     t = Math.imul(t ^ (t >>> 15), t | 1);
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61);

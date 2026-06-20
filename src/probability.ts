@@ -424,7 +424,9 @@ export const StudentTCDF: ExtensionDef<typeof OUTPUT_TYPE> = {
 // function. Because u is held constant for a given `seed`, the output is a
 // differentiable function of the distribution parameters — gradients flow
 // through e.g. `mu`/`sigma`, matching the rest of this module. Vary `seed` to
-// draw a different (but reproducible) sample.
+// draw a different (but reproducible) sample. The default `seed` of -1 (any
+// negative value) opts out of reproducibility and draws a fresh random sample
+// on every evaluation.
 
 export const UniformSample: ExtensionDef<typeof OUTPUT_TYPE> = {
     name: 'Uniform Sample',
@@ -432,7 +434,7 @@ export const UniformSample: ExtensionDef<typeof OUTPUT_TYPE> = {
     parameters: [
         { argName: 'a',    type: 'Scalar', defaultValue: 0, variadic: false },
         { argName: 'b',    type: 'Scalar', defaultValue: 1, variadic: false },
-        { argName: 'seed', type: 'Scalar', defaultValue: 0, variadic: false },
+        { argName: 'seed', type: 'Scalar', defaultValue: -1, variadic: false },
     ],
     outputType: OUTPUT_TYPE,
 
@@ -450,7 +452,7 @@ export const NormalSample: ExtensionDef<typeof OUTPUT_TYPE> = {
     parameters: [
         { argName: 'mu',    type: 'Scalar', defaultValue: 0, variadic: false },
         { argName: 'sigma', type: 'Scalar', defaultValue: 1, variadic: false },
-        { argName: 'seed',  type: 'Scalar', defaultValue: 0, variadic: false },
+        { argName: 'seed',  type: 'Scalar', defaultValue: -1, variadic: false },
     ],
     outputType: OUTPUT_TYPE,
 
