@@ -81,8 +81,8 @@ export const VisualizeWeightSum: ExtensionDef<'Arrow'> = {
     name: 'VisualizeWeightSum',
     keyword: 'la-weighted-sum',
     parameters: [
-        { argName: 'matrix',  type: 'Array', defaultValue: 0, variadic: false },
-        { argName: 'weights', type: 'Array', defaultValue: 0, variadic: false },
+        { argName: 'matrix',  type: 'Array', variadic: false },
+        { argName: 'weights', type: 'Array', variadic: false },
     ],
     outputType: 'Arrow',
 
@@ -90,12 +90,16 @@ export const VisualizeWeightSum: ExtensionDef<'Arrow'> = {
         const INPUT_STROKE  = '#41dbc9';   // scaled column vectors (tip-to-tail)
         const OUTPUT_STROKE = '#f5a623';   // resultant weighted sum
 
+        // Array elements arrive as plain numbers (a Scalar serializes to a
+        // bare number), so read each element directly rather than `.value`.
+        const num = (e: any) => (typeof e === 'number' ? e : e.value);
+
         // matrix is 2×n row-major: row 0 = all x-components, row 1 = all y's.
         // Column i is the 2D vector (xs[i], ys[i]).
         const n  = matrix.shape[1];
-        const xs = matrix.elements.slice(0, n).map((e: any) => e.value);
-        const ys = matrix.elements.slice(n, 2 * n).map((e: any) => e.value);
-        const w  = weights.elements.map((e: any) => e.value);
+        const xs = matrix.elements.slice(0, n).map(num);
+        const ys = matrix.elements.slice(n, 2 * n).map(num);
+        const w  = weights.elements.map(num);
 
         const result: Record<string, any> = {};
 
