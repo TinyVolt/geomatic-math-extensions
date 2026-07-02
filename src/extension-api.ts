@@ -99,6 +99,8 @@ declare global {
 
 export interface Node {
     type: string;
+    stroke?: string;
+    fill?: string;
 }
 
 export interface PointNode extends Node {
@@ -111,6 +113,18 @@ export interface ScalarNode extends Node {
     type: 'Scalar';
     value: Differentiable;
     grad?: number;
+}
+
+export interface ComplexNode extends Node {
+    type: 'Complex';
+    re: Differentiable;
+    im: Differentiable;
+    grad?: { dre: number; dim: number };
+}
+
+export interface BooleanNode extends Node {
+    type: 'Bool';
+    value: boolean;
 }
 
 export interface TriangleNode extends Node {
@@ -168,13 +182,29 @@ export interface DummyNode extends Node {
 export interface ArrayNode extends Node {
     type: 'Array';
     elementType: NodeType;
+    shape: number[];
     length: number;
     elements: GeometricNode[];
+}
+
+export interface PolynomialNode extends Node {
+    type: 'Polynomial';
+    coefficients: ScalarNode[];
+}
+
+export interface ArrowNode extends Node {
+    type: 'Arrow';
+    p1: PointNode;
+    p2: PointNode;
+    padding?: ScalarNode;
+    label: string;
 }
 
 export interface NodeTypeMap {
     Point:           PointNode;
     Scalar:          ScalarNode;
+    Complex:         ComplexNode;
+    Bool:            BooleanNode;
     Triangle:        TriangleNode;
     Line:            LineNode;
     Circle:          CircleNode;
@@ -184,6 +214,8 @@ export interface NodeTypeMap {
     Arc:             ArcNode;
     Dummy:           DummyNode;
     Array:           ArrayNode;
+    Polynomial:      PolynomialNode;
+    Arrow:           ArrowNode;
 }
 
 type NodeType = keyof NodeTypeMap;
