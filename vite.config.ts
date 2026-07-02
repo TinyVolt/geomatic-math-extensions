@@ -52,7 +52,8 @@ export default defineConfig({
             parameters: ext.parameters.map((p: any) => ({
               name: p.argName,
               type: p.type,
-              ...(p.defaultValue !== undefined ? { default: p.defaultValue } : {})
+              ...(p.defaultValue !== undefined ? { default: p.defaultValue } : {}),
+              ...(p.variadic ? { variadic: true } : {})
             })),
             outputType: ext.outputType
           }));
