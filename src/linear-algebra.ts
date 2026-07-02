@@ -92,33 +92,41 @@ export const VisualizeWeightSum: ExtensionDef<'Arrow'> = {
 
         // matrix is 2×n row-major: row 0 = all x-components, row 1 = all y's.
         // Column i is the 2D vector (xs[i], ys[i]).
-        const n = matrix.shape[1];
+        const n  = matrix.shape[1];
         const xs = matrix.elements.slice(0, n).map((e: any) => e.value);
         const ys = matrix.elements.slice(n, 2 * n).map((e: any) => e.value);
         const w  = weights.elements.map((e: any) => e.value);
 
-        // Chain each scaled column tip-to-tail; the resultant is the running sum.
         const result: Record<string, any> = {};
+
+        // Tip-to-tail chain as REAL (auxiliary) Point nodes. pts[0] = origin.
+        const pts: any[] = [{ type: 'Point', x: 0, y: 0 }];
         let cx = 0, cy = 0;
         for (let i = 0; i < n; i++) {
-            const nx = cx + w[i] * xs[i];
-            const ny = cy + w[i] * ys[i];
+            cx += w[i] * xs[i];
+            cy += w[i] * ys[i];
+            pts.push({ type: 'Point', x: cx, y: cy });
+        }
+
+        // Register every point as a top-level auxiliary node so it gets an id.
+        pts.forEach((p, i) => { result[`pt_${i}`] = p; });
+
+        // Component arrows reference the SAME point objects (identity matters).
+        for (let i = 0; i < n; i++) {
             result[`term_${i}`] = {
                 type: 'Arrow',
-                p1: { type: 'Point', x: cx, y: cy },
-                p2: { type: 'Point', x: nx, y: ny },
+                p1: pts[i],          // === result[`pt_${i}`]
+                p2: pts[i + 1],      // === result[`pt_${i+1}`]
                 label: '',
                 stroke: INPUT_STROKE,
             };
-            cx = nx;
-            cy = ny;
         }
 
-        // The output arrow (outer stroke): origin → weighted sum.
+        // Resultant arrow: origin -> weighted sum, reusing the same endpoints.
         result.main = {
             type: 'Arrow',
-            p1: { type: 'Point', x: 0, y: 0 },
-            p2: { type: 'Point', x: cx, y: cy },
+            p1: pts[0],
+            p2: pts[n],
             label: '',
             stroke: OUTPUT_STROKE,
         };
