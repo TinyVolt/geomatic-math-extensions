@@ -182,6 +182,10 @@ export const VisualizeGridTransform: ExtensionDef<'Array'> = {
             lines.push({ type: 'Line', p1: point(-R, j), p2: point(R, j) }); // horizontal
         }
 
+        // Register every line as a top-level auxiliary so it gets an id; the
+        // array below references the SAME objects by identity.
+        lines.forEach((line, i) => { result[`line_${i}`] = line; });
+
         result.main = {
             type: 'Array',
             elementType: 'Line',
