@@ -138,3 +138,58 @@ export const VisualizeWeightSum: ExtensionDef<'Arrow'> = {
         return result;
     },
 };
+
+export const VisualizeGridTransform: ExtensionDef<'Array'> = {
+    name: 'VisualizeGridTransform',
+    keyword: 'la-grid-transform',
+    parameters: [
+        { argName: 'matrix', type: 'Array', variadic: false },
+    ],
+    outputType: 'Array',
+
+    compute: ({ matrix }) => {
+        const num = (e: any) => (typeof e === 'number' ? e : e.value);
+
+        // matrix is 2×2 row-major: [a, b, c, d] = [[a, b], [c, d]].
+        // A point (x, y) maps to (a*x + b*y, c*x + d*y).
+        const a = num(matrix.elements[0]);
+        const b = num(matrix.elements[1]);
+        const c = num(matrix.elements[2]);
+        const d = num(matrix.elements[3]);
+
+        const R = 5; // grid spans the integer range [-5, 5] before transform.
+        const result: Record<string, any> = {};
+
+        // Transform + register each lattice point once, keyed by its ORIGINAL
+        // coordinate, so lines that meet share the same Point object (and id).
+        const pointCache = new Map<string, any>();
+        const point = (x: number, y: number) => {
+            const key = `${x},${y}`;
+            let p = pointCache.get(key);
+            if (!p) {
+                p = { type: 'Point', x: a * x + b * y, y: c * x + d * y };
+                pointCache.set(key, p);
+                result[`pt_${x}_${y}`] = p; // top-level auxiliary → gets an id
+            }
+            return p;
+        };
+
+        const lines: any[] = [];
+        for (let i = -R; i <= R; i++) {
+            lines.push({ type: 'Line', p1: point(i, -R), p2: point(i, R) }); // vertical
+        }
+        for (let j = -R; j <= R; j++) {
+            lines.push({ type: 'Line', p1: point(-R, j), p2: point(R, j) }); // horizontal
+        }
+
+        result.main = {
+            type: 'Array',
+            elementType: 'Line',
+            shape: [lines.length],
+            length: lines.length,
+            elements: lines,
+        };
+
+        return result;
+    },
+};
