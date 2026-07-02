@@ -1,5 +1,5 @@
 import { ExtensionDef } from "./extension-api";
-import { transpose } from "./utils/linear-algebra-utils";
+import { transpose, reshape, matmul } from "./utils/linear-algebra-utils";
 
 export const Vector2D: ExtensionDef<'Arrow'> = {
     name: 'Vector2D',
@@ -47,9 +47,9 @@ export const Vector: ExtensionDef<'Array'> = {
     },
 };
 
-export const Matrix: ExtensionDef<'Array'> = {
-    name: 'Matrix',
-    keyword: 'la-mat',
+export const MatrixFromPoints: ExtensionDef<'Array'> = {
+    name: 'MatrixFromPoints',
+    keyword: 'la-mat-from-points',
     parameters: [
         { argName: 'points', type: 'Point', defaultValue: 0, variadic: true },
     ],
@@ -71,6 +71,136 @@ export const Matrix: ExtensionDef<'Array'> = {
                 elementType: 'Scalar',
                 shape: [2, n],
                 length: 2 * n,
+                elements,
+            },
+        };
+    },
+};
+
+export const MatrixFromPointArray: ExtensionDef<'Array'> = {
+    name: 'MatrixFromPointArray',
+    keyword: 'la-mat-from-point-array',
+    parameters: [
+        { argName: 'points', type: 'Array', variadic: false },
+    ],
+    outputType: 'Array',
+
+    compute: ({ points }) => {
+        // Same as `la-mat-from-points`, but the points arrive as a single Array
+        // node rather than variadic args. Each element is a column of the matrix.
+        const rows = points.elements.map((p: any) => [p.x, p.y]);
+        const columns = transpose(rows);
+
+        // Flatten the 2×n matrix back to row-major order for the Array node.
+        const elements = columns.flat().map((value) => ({ type: 'Scalar', value }));
+        const n = points.elements.length;
+
+        return {
+            main: {
+                type: 'Array',
+                elementType: 'Scalar',
+                shape: [2, n],
+                length: 2 * n,
+                elements,
+            },
+        };
+    },
+};
+
+export const MatrixToPoints: ExtensionDef<'Array'> = {
+    name: 'MatrixToPoints',
+    keyword: 'la-mat-to-points',
+    parameters: [
+        { argName: 'matrix', type: 'Array', variadic: false },
+    ],
+    outputType: 'Array',
+
+    compute: ({ matrix }) => {
+        const num = (e: any) => (typeof e === 'number' ? e : e.value);
+
+        // matrix is 2×n row-major: row 0 = all x's, row 1 = all y's.
+        // Column i becomes the point (xs[i], ys[i]).
+        const n  = matrix.shape[1];
+        const xs = matrix.elements.slice(0, n).map(num);
+        const ys = matrix.elements.slice(n, 2 * n).map(num);
+
+        const result: Record<string, any> = {};
+        const points = xs.map((x: number, i: number) => ({ type: 'Point', x, y: ys[i] }));
+
+        // Register each point as a top-level auxiliary; the array references the
+        // SAME objects by identity.
+        points.forEach((p: any, i: number) => { result[`pt_${i}`] = p; });
+
+        result.main = {
+            type: 'Array',
+            elementType: 'Point',
+            shape: [n],
+            length: n,
+            elements: points,
+        };
+
+        return result;
+    },
+};
+
+export const MatMul: ExtensionDef<'Array'> = {
+    name: 'MatMul',
+    keyword: 'la-matmul',
+    parameters: [
+        { argName: 'a', type: 'Array', variadic: false },
+        { argName: 'b', type: 'Array', variadic: false },
+    ],
+    outputType: 'Array',
+
+    compute: ({ a, b }) => {
+        const num = (e: any) => (typeof e === 'number' ? e : e.value);
+
+        const aVals: number[] = a.elements.map(num);
+        const bVals: number[] = b.elements.map(num);
+
+        // Candidate 2D interpretations of an operand. A 2D array has exactly
+        // one; a 1D array of length p may be a row (1×p) or a column (p×1),
+        // so we offer both — ordered by preference — and pick what fits.
+        const candidates = (shape: number[], len: number, preferRow: boolean) => {
+            if (shape.length >= 2) return [{ rows: shape[0], cols: shape[1] }];
+            const row = { rows: 1, cols: len };
+            const col = { rows: len, cols: 1 };
+            return preferRow ? [row, col] : [col, row];
+        };
+
+        // Left operand prefers a row vector, right operand a column vector
+        // (matching NumPy's 1-D matmul promotion). Pick the first compatible pair.
+        const aCands = candidates(a.shape, aVals.length, true);
+        const bCands = candidates(b.shape, bVals.length, false);
+
+        let chosen: { ad: any; bd: any } | null = null;
+        for (const ad of aCands) {
+            for (const bd of bCands) {
+                if (ad.cols === bd.rows) { chosen = { ad, bd }; break; }
+            }
+            if (chosen) break;
+        }
+
+        if (!chosen) {
+            throw new Error(
+                `MatMul: incompatible shapes [${a.shape}] and [${b.shape}]`
+            );
+        }
+
+        const A = reshape(aVals, chosen.ad.rows, chosen.ad.cols);
+        const B = reshape(bVals, chosen.bd.rows, chosen.bd.cols);
+        const product = matmul(A, B);
+
+        const rows = product.length;
+        const cols = product[0].length;
+        const elements = product.flat().map((value) => ({ type: 'Scalar', value }));
+
+        return {
+            main: {
+                type: 'Array',
+                elementType: 'Scalar',
+                shape: [rows, cols],
+                length: rows * cols,
                 elements,
             },
         };
@@ -197,3 +327,4 @@ export const VisualizeGridTransform: ExtensionDef<'Array'> = {
         return result;
     },
 };
+
