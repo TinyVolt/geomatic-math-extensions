@@ -335,10 +335,13 @@ export const ArrayToTextBoxes: ExtensionDef<'Array'> = {
         { argName: 'array', type: 'Array', variadic: false },
         { argName: 'x', type: 'Scalar', defaultValue: 0, variadic: false },
         { argName: 'y', type: 'Scalar', defaultValue: 0, variadic: false },
+        { argName: 'cellWidth', type: 'Scalar', defaultValue: 1, variadic: false },
+        { argName: 'cellHeight', type: 'Scalar', defaultValue: 1, variadic: false },
+        { argName: 'fontSize', type: 'Scalar', defaultValue: 14, variadic: false },
     ],
     outputType: 'Array',
 
-    compute: ({ array, x, y }) => {
+    compute: ({ array, x, y, cellWidth, cellHeight, fontSize: fontSizeValue }) => {
         const num = (e: any) => (typeof e === 'number' ? e : e.value);
 
         // Integers render as-is; non-integers are rounded to at most two
@@ -366,15 +369,11 @@ export const ArrayToTextBoxes: ExtensionDef<'Array'> = {
 
         const values = array.elements.map(num);
 
-        const CELL_W = 1;    // horizontal gap between columns
-        const CELL_H = 1;    // vertical gap between rows
-        const FONT_SIZE = 14;
-
         const result: Record<string, GeometricNode> = {};
         const boxes: TextBoxNode[] = [];
 
         // Every box shares one font size; build the Scalar once and reuse it.
-        const fontSize: ScalarNode = { type: 'Scalar', value: FONT_SIZE };
+        const fontSize: ScalarNode = { type: 'Scalar', value: fontSizeValue };
 
         // Walk the grid row-major. Top-left cell sits at (x, y); columns extend
         // rightward (+x) and rows downward (−y), so every box is offset by the
@@ -385,8 +384,8 @@ export const ArrayToTextBoxes: ExtensionDef<'Array'> = {
 
                 const position: PointNode = {
                     type: 'Point',
-                    x: x + c * CELL_W,
-                    y: y - r * CELL_H,
+                    x: x + c * cellWidth,
+                    y: y - r * cellHeight,
                 };
                 const box: TextBoxNode = {
                     type: 'TextBox',
