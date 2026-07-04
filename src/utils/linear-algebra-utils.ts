@@ -27,6 +27,44 @@ export function reshape<T>(flat: T[], rows: number, cols: number): T[][] {
 }
 
 /**
+ * Convert an HSL colour to a `#rrggbb` hex string.
+ *   h in [0, 360), s and l in [0, 100].
+ * Hex is used (rather than a CSS `hsl(...)` string) so the output matches the
+ * `#rrggbb` stroke format the rest of the extension already emits.
+ */
+export function hslToHex(h: number, s: number, l: number): string {
+    const sN = s / 100;
+    const lN = l / 100;
+    const c = (1 - Math.abs(2 * lN - 1)) * sN;
+    const hp = (((h % 360) + 360) % 360) / 60;
+    const x = c * (1 - Math.abs((hp % 2) - 1));
+    let r = 0, g = 0, b = 0;
+    if (hp < 1)      { r = c; g = x; b = 0; }
+    else if (hp < 2) { r = x; g = c; b = 0; }
+    else if (hp < 3) { r = 0; g = c; b = x; }
+    else if (hp < 4) { r = 0; g = x; b = c; }
+    else if (hp < 5) { r = x; g = 0; b = c; }
+    else             { r = c; g = 0; b = x; }
+    const m = lN - c / 2;
+    const to255 = (v: number) => Math.round((v + m) * 255).toString(16).padStart(2, '0');
+    return `#${to255(r)}${to255(g)}${to255(b)}`;
+}
+
+/**
+ * Evenly-spaced rainbow gradient: `n` `#rrggbb` colours whose hues sweep the
+ * full colour wheel. Laid out in order they read as a continuous gradient,
+ * which is what makes a fan of lines/points look like the reference image.
+ */
+export function rainbowGradient(n: number, saturation = 100, lightness = 55): string[] {
+    if (n <= 0) return [];
+    const colors: string[] = new Array(n);
+    for (let i = 0; i < n; i++) {
+        colors[i] = hslToHex((360 * i) / n, saturation, lightness);
+    }
+    return colors;
+}
+
+/**
  * Multiply two row-major numeric matrices: (m×k) · (k×n) → (m×n).
  * Throws if the inner dimensions do not match.
  */

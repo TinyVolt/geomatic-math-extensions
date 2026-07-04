@@ -1,5 +1,5 @@
 import { ExtensionDef, ScalarNode, PointNode, LineNode, TextBoxNode, GeometricNode } from "./extension-api";
-import { transpose, reshape, matmul } from "./utils/linear-algebra-utils";
+import { transpose, reshape, matmul, rainbowGradient } from "./utils/linear-algebra-utils";
 
 export const Vector2D: ExtensionDef<'Arrow'> = {
     name: 'Vector2D',
@@ -315,6 +315,69 @@ export const VisualizeGridTransform: ExtensionDef<'Array'> = {
         // Register every line as a top-level auxiliary so it gets an id; the
         // array below references the SAME objects by identity.
         lines.forEach((line, i) => { result[`line_${i}`] = line; });
+
+        result.main = {
+            type: 'Array',
+            elementType: 'Line',
+            shape: [lines.length],
+            length: lines.length,
+            elements: lines,
+        };
+
+        return result;
+    },
+};
+
+export const VisualizeCircleTransform: ExtensionDef<'Array'> = {
+    name: 'VisualizeCircleTransform',
+    keyword: 'la-circle-transform',
+    parameters: [
+        { argName: 'matrix', type: 'Array', variadic: false },
+        { argName: 'n', type: 'Scalar', defaultValue: 60, variadic: false },
+    ],
+    outputType: 'Array',
+
+    compute: ({ matrix, n: nValue }) => {
+        const num = (e: any) => (typeof e === 'number' ? e : e.value);
+
+        // matrix is 2×2 row-major: [a, b, c, d] = [[a, b], [c, d]].
+        // A point (x, y) maps to (a*x + b*y, c*x + d*y).
+        const a = num(matrix.elements[0]);
+        const b = num(matrix.elements[1]);
+        const c = num(matrix.elements[2]);
+        const d = num(matrix.elements[3]);
+
+        const n = Math.max(1, Math.round(num(nValue)));
+        const colors = rainbowGradient(n);
+
+        const result: Record<string, GeometricNode> = {};
+
+        // Origin p0, shared by every line. Register once as a top-level
+        // auxiliary so it gets an id, then reference it by identity.
+        const p0: PointNode = { type: 'Point', x: 0, y: 0 };
+        result.origin = p0;
+
+        // n points evenly spaced on the unit circle, transformed by the matrix.
+        // Each transformed point and its line share one gradient colour.
+        const lines: LineNode[] = [];
+        for (let i = 0; i < n; i++) {
+            const theta = (2 * Math.PI * i) / n;
+            const x = Math.cos(theta);
+            const y = Math.sin(theta);
+            const color = colors[i];
+
+            const pOut: PointNode = {
+                type: 'Point',
+                x: a * x + b * y,
+                y: c * x + d * y,
+                stroke: color,
+            };
+            result[`pt_${i}`] = pOut; // top-level auxiliary → gets an id
+
+            const line: LineNode = { type: 'Line', p1: p0, p2: pOut, stroke: color };
+            result[`line_${i}`] = line; // top-level auxiliary → gets an id
+            lines.push(line);
+        }
 
         result.main = {
             type: 'Array',
