@@ -103,6 +103,29 @@ export interface Node {
     fill?: string;
 }
 
+/** Output of a rich-text interpolation: either plain prose or a value pulled from a node.
+ *  Renderers use the `interp` kind to switch to a monospace (code) font. */
+export type RenderedTextSegment =
+    | { kind: 'literal'; text: string }
+    | { kind: 'interp';  text: string };
+
+export interface TextNode extends Node {
+    type: 'Text';
+    value: string;
+    /** Present when the text was produced by rich-text interpolation (`\text "..."` with `${...}` refs). */
+    segments?: RenderedTextSegment[];
+}
+
+export interface TextBoxNode extends Node {
+    type: 'TextBox';
+    position: PointNode;
+    text: string;
+    textSegments?: RenderedTextSegment[];
+    fontSize: ScalarNode;
+    width?: ScalarNode;
+    height?: ScalarNode;
+}
+
 export interface PointNode extends Node {
     type: 'Point';
     x: Differentiable;
@@ -201,6 +224,8 @@ export interface ArrowNode extends Node {
 }
 
 export interface NodeTypeMap {
+    Text:            TextNode;
+    TextBox:         TextBoxNode;
     Point:           PointNode;
     Scalar:          ScalarNode;
     Complex:         ComplexNode;
@@ -224,7 +249,7 @@ export interface CustomNode extends Node {
     [key: string]: any;
 }
 
-export type GeometricNode = NodeTypeMap[keyof NodeTypeMap] | CustomNode;
+export type GeometricNode = NodeTypeMap[keyof NodeTypeMap];
 
 // ===========================================================================
 // Extension definition
