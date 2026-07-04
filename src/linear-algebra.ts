@@ -341,6 +341,10 @@ export const ArrayToTextBoxes: ExtensionDef<'Array'> = {
     compute: ({ array, x, y }) => {
         const num = (e: any) => (typeof e === 'number' ? e : e.value);
 
+        // Integers render as-is; non-integers are rounded to at most two
+        // decimals (trailing zeros dropped, e.g. 1.5 stays "1.5", not "1.50").
+        const fmt = (v: number) => String(Math.round(v * 100) / 100);
+
         // Read the array's shape to decide the layout:
         //   1D [n]    → a column of n boxes (looks like a vector)
         //   2D [r, c] → an r×c grid, row-major
@@ -362,9 +366,9 @@ export const ArrayToTextBoxes: ExtensionDef<'Array'> = {
 
         const values = array.elements.map(num);
 
-        const CELL_W = 2;    // horizontal gap between columns
-        const CELL_H = 2;    // vertical gap between rows
-        const FONT_SIZE = 12;
+        const CELL_W = 1;    // horizontal gap between columns
+        const CELL_H = 1;    // vertical gap between rows
+        const FONT_SIZE = 14;
 
         const result: Record<string, GeometricNode> = {};
         const boxes: TextBoxNode[] = [];
@@ -387,7 +391,7 @@ export const ArrayToTextBoxes: ExtensionDef<'Array'> = {
                 const box: TextBoxNode = {
                     type: 'TextBox',
                     position,
-                    text: String(value),
+                    text: fmt(value),
                     fontSize,
                 };
 
