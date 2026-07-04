@@ -1,4 +1,4 @@
-import { ExtensionDef } from "./extension-api";
+import { ExtensionDef, ScalarNode, PointNode, LineNode, TextBoxNode, GeometricNode } from "./extension-api";
 import { transpose, reshape, matmul } from "./utils/linear-algebra-utils";
 
 export const Vector2D: ExtensionDef<'Arrow'> = {
@@ -58,11 +58,11 @@ export const MatrixFromPoints: ExtensionDef<'Array'> = {
     compute: ({ points }) => {
         // Each point is a column of the matrix. Collected point-wise, the data
         // is row-major n×2 (row i = [x_i, y_i]); transpose to the desired 2×n.
-        const rows = points.map((p: any) => [p.x, p.y]);
+        const rows: number[][] = points.map((p: any) => [p.x, p.y]);
         const columns = transpose(rows);
 
         // Flatten the 2×n matrix back to row-major order for the Array node.
-        const elements = columns.flat().map((value) => ({ type: 'Scalar', value }));
+        const elements: ScalarNode[] = columns.flat().map((value) => ({ type: 'Scalar', value }));
         const n = points.length;
 
         return {
@@ -88,11 +88,11 @@ export const MatrixFromPointArray: ExtensionDef<'Array'> = {
     compute: ({ points }) => {
         // Same as `la-mat-from-points`, but the points arrive as a single Array
         // node rather than variadic args. Each element is a column of the matrix.
-        const rows = points.elements.map((p: any) => [p.x, p.y]);
+        const rows: number[][] = points.elements.map((p: any) => [p.x, p.y]);
         const columns = transpose(rows);
 
         // Flatten the 2×n matrix back to row-major order for the Array node.
-        const elements = columns.flat().map((value) => ({ type: 'Scalar', value }));
+        const elements: ScalarNode[] = columns.flat().map((value) => ({ type: 'Scalar', value }));
         const n = points.elements.length;
 
         return {
@@ -124,12 +124,12 @@ export const MatrixToPoints: ExtensionDef<'Array'> = {
         const xs = matrix.elements.slice(0, n).map(num);
         const ys = matrix.elements.slice(n, 2 * n).map(num);
 
-        const result: Record<string, any> = {};
-        const points = xs.map((x: number, i: number) => ({ type: 'Point', x, y: ys[i] }));
+        const result: Record<string, GeometricNode> = {};
+        const points: PointNode[] = xs.map((x: number, i: number) => ({ type: 'Point', x, y: ys[i] }));
 
         // Register each point as a top-level auxiliary; the array references the
         // SAME objects by identity.
-        points.forEach((p: any, i: number) => { result[`pt_${i}`] = p; });
+        points.forEach((p, i: number) => { result[`pt_${i}`] = p; });
 
         result.main = {
             type: 'Array',
@@ -193,7 +193,7 @@ export const MatMul: ExtensionDef<'Array'> = {
 
         const rows = product.length;
         const cols = product[0].length;
-        const elements = product.flat().map((value) => ({ type: 'Scalar', value }));
+        const elements: ScalarNode[] = product.flat().map((value) => ({ type: 'Scalar', value }));
 
         return {
             main: {
@@ -231,10 +231,10 @@ export const VisualizeWeightSum: ExtensionDef<'Arrow'> = {
         const ys = matrix.elements.slice(n, 2 * n).map(num);
         const w  = weights.elements.map(num);
 
-        const result: Record<string, any> = {};
+        const result: Record<string, GeometricNode> = {};
 
         // Tip-to-tail chain as REAL (auxiliary) Point nodes. pts[0] = origin.
-        const pts: any[] = [{ type: 'Point', x: 0, y: 0 }];
+        const pts: PointNode[] = [{ type: 'Point', x: 0, y: 0 }];
         let cx = 0, cy = 0;
         for (let i = 0; i < n; i++) {
             cx += w[i] * xs[i];
@@ -288,12 +288,12 @@ export const VisualizeGridTransform: ExtensionDef<'Array'> = {
         const d = num(matrix.elements[3]);
 
         const R = 5; // grid spans the integer range [-5, 5] before transform.
-        const result: Record<string, any> = {};
+        const result: Record<string, GeometricNode> = {};
 
         // Transform + register each lattice point once, keyed by its ORIGINAL
         // coordinate, so lines that meet share the same Point object (and id).
-        const pointCache = new Map<string, any>();
-        const point = (x: number, y: number) => {
+        const pointCache = new Map<string, PointNode>();
+        const point = (x: number, y: number): PointNode => {
             const key = `${x},${y}`;
             let p = pointCache.get(key);
             if (!p) {
@@ -304,7 +304,7 @@ export const VisualizeGridTransform: ExtensionDef<'Array'> = {
             return p;
         };
 
-        const lines: any[] = [];
+        const lines: LineNode[] = [];
         for (let i = -R; i <= R; i++) {
             lines.push({ type: 'Line', p1: point(i, -R), p2: point(i, R) }); // vertical
         }
@@ -322,6 +322,89 @@ export const VisualizeGridTransform: ExtensionDef<'Array'> = {
             shape: [lines.length],
             length: lines.length,
             elements: lines,
+        };
+
+        return result;
+    },
+};
+
+export const ArrayToTextBoxes: ExtensionDef<'Array'> = {
+    name: 'ArrayToTextBoxes',
+    keyword: 'la-array-to-textboxes',
+    parameters: [
+        { argName: 'array', type: 'Array', variadic: false },
+        { argName: 'x', type: 'Scalar', defaultValue: 0, variadic: false },
+        { argName: 'y', type: 'Scalar', defaultValue: 0, variadic: false },
+    ],
+    outputType: 'Array',
+
+    compute: ({ array, x, y }) => {
+        const num = (e: any) => (typeof e === 'number' ? e : e.value);
+
+        // Read the array's shape to decide the layout:
+        //   1D [n]    → a column of n boxes (looks like a vector)
+        //   2D [r, c] → an r×c grid, row-major
+        //   anything else is unsupported.
+        const shape: number[] = array.shape;
+        let rows: number;
+        let cols: number;
+        if (shape.length === 1) {
+            rows = shape[0];
+            cols = 1;
+        } else if (shape.length === 2) {
+            rows = shape[0];
+            cols = shape[1];
+        } else {
+            throw new Error(
+                `ArrayToTextBoxes: expected a 1D or 2D array, got shape [${shape}]`
+            );
+        }
+
+        const values = array.elements.map(num);
+
+        const CELL_W = 2;    // horizontal gap between columns
+        const CELL_H = 2;    // vertical gap between rows
+        const FONT_SIZE = 12;
+
+        const result: Record<string, GeometricNode> = {};
+        const boxes: TextBoxNode[] = [];
+
+        // Every box shares one font size; build the Scalar once and reuse it.
+        const fontSize: ScalarNode = { type: 'Scalar', value: FONT_SIZE };
+
+        // Walk the grid row-major. Top-left cell sits at (x, y); columns extend
+        // rightward (+x) and rows downward (−y), so every box is offset by the
+        // requested top-left origin.
+        for (let r = 0; r < rows; r++) {
+            for (let c = 0; c < cols; c++) {
+                const value = values[r * cols + c];
+
+                const position: PointNode = {
+                    type: 'Point',
+                    x: x + c * CELL_W,
+                    y: y - r * CELL_H,
+                };
+                const box: TextBoxNode = {
+                    type: 'TextBox',
+                    position,
+                    text: String(value),
+                    fontSize,
+                };
+
+                // The box's Point and the box itself must each be top-level
+                // auxiliaries to get ids; the array references the same objects.
+                result[`pos_${r}_${c}`] = position;
+                result[`box_${r}_${c}`] = box;
+                boxes.push(box);
+            }
+        }
+
+        result.main = {
+            type: 'Array',
+            elementType: 'TextBox',
+            shape: [boxes.length],
+            length: boxes.length,
+            elements: boxes,
         };
 
         return result;
