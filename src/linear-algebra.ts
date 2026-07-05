@@ -3,24 +3,30 @@ import { transpose, reshape, matmul, rainbowGradient } from "./utils/linear-alge
 import { toNumber } from "./utils/common";
 
 /**
- * A 2D vector drawn as an arrow from the origin to (x, y).
- * Inputs: `x`, `y` scalar components. Output: an `Arrow` node.
+ * A 2D vector (x, y) drawn as an arrow, tail-anchored at (offsetX, offsetY).
+ * Inputs: `x`, `y` scalar components and `offsetX`, `offsetY` (default 0) for
+ * the tail. The arrow runs from (offsetX, offsetY) to (offsetX + x, offsetY + y).
+ * Output: an `Arrow` node.
  */
 export const Vector2D: ExtensionDef<'Arrow'> = {
     name: 'Vector2D',
     keyword: 'la-vec2d',
     parameters: [
-        { argName: 'x', type: 'Scalar', defaultValue: 1, variadic: false },
-        { argName: 'y', type: 'Scalar', defaultValue: 0, variadic: false },
+        { argName: 'x', type: 'Scalar', variadic: false },
+        { argName: 'y', type: 'Scalar', variadic: false },
+        { argName: 'offsetX', type: 'Scalar', defaultValue: 0, variadic: false },
+        { argName: 'offsetY', type: 'Scalar', defaultValue: 0, variadic: false },
     ],
     outputType: 'Arrow',
 
-    compute: ({ x, y }) => {
+    compute: ({ x, y, offsetX, offsetY }) => {
+        const ox = toNumber(offsetX);
+        const oy = toNumber(offsetY);
         return {
             main: {
                 type: 'Arrow',
-                p1: { type: 'Point', x: 0, y: 0 },
-                p2: { type: 'Point', x: toNumber(x), y: toNumber(y) },
+                p1: { type: 'Point', x: ox, y: oy },
+                p2: { type: 'Point', x: ox + toNumber(x), y: oy + toNumber(y) },
                 label: '',
                 stroke: '#41dbc9'
             },
