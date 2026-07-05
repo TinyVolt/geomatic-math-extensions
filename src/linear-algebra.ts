@@ -667,48 +667,42 @@ export const DotProduct: ExtensionDef<'Scalar'> = {
 };
 
 /**
- * Project vector `v1` onto vector `v2`: (v1·v2 / v2·v2) · v2.
- * Inputs: `v1`, `v2` (equal-length `Array`s of scalars). Throws if the lengths
- * differ; if `v2` is the zero vector the projection is the zero vector. Output:
- * a length-n `Array` of scalars (same length as the inputs).
+ * Project vector `v1` onto vector `v2`: (v1·v2 / v2·v2) · v2, drawn as an
+ * arrow from the origin (same output shape as `la-vec2d`). Inputs: `v1`, `v2`
+ * (2D vectors as length-2 `Array`s of scalars). Throws if either isn't 2D; if
+ * `v2` is the zero vector the projection is the zero vector. Output: an `Arrow`.
  */
-export const ProjectV1OnV2: ExtensionDef<'Array'> = {
+export const ProjectV1OnV2: ExtensionDef<'Arrow'> = {
     name: 'ProjectV1OnV2',
     keyword: 'la-project',
     parameters: [
         { argName: 'v1', type: 'Array', variadic: false },
         { argName: 'v2', type: 'Array', variadic: false },
     ],
-    outputType: 'Array',
+    outputType: 'Arrow',
 
     compute: ({ v1, v2 }) => {
         const a: number[] = v1.elements.map(toNumber);
         const b: number[] = v2.elements.map(toNumber);
-        if (a.length !== b.length) {
+        // The result is drawn as a 2D arrow, so both inputs must be 2D.
+        if (a.length !== 2 || b.length !== 2) {
             throw new Error(
-                `ProjectV1OnV2: vectors must be the same length (got ${a.length} and ${b.length})`
+                `ProjectV1OnV2: expected 2D vectors, got lengths ${a.length} and ${b.length}`
             );
         }
 
-        let dot = 0;   // v1·v2
-        let bb = 0;    // v2·v2
-        for (let i = 0; i < a.length; i++) {
-            dot += a[i] * b[i];
-            bb += b[i] * b[i];
-        }
-        // Zero v2 → undefined direction; project to the zero vector.
+        // scale = (v1·v2) / (v2·v2); zero v2 → undefined direction, project to 0.
+        const dot = a[0] * b[0] + a[1] * b[1];
+        const bb = b[0] * b[0] + b[1] * b[1];
         const scale = bb === 0 ? 0 : dot / bb;
-
-        const n = a.length;
-        const elements: ScalarNode[] = b.map((bi) => ({ type: 'Scalar', value: scale * bi }));
 
         return {
             main: {
-                type: 'Array',
-                elementType: 'Scalar',
-                shape: [n],
-                length: n,
-                elements,
+                type: 'Arrow',
+                p1: { type: 'Point', x: 0, y: 0 },
+                p2: { type: 'Point', x: scale * b[0], y: scale * b[1] },
+                label: '',
+                stroke: '#41dbc9',
             },
         };
     },
