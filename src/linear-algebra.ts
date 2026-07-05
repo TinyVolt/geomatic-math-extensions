@@ -2,6 +2,10 @@ import { ExtensionDef, ScalarNode, PointNode, LineNode, TextBoxNode, GeometricNo
 import { transpose, reshape, matmul, rainbowGradient } from "./utils/linear-algebra-utils";
 import { toNumber } from "./utils/common";
 
+/**
+ * A 2D vector drawn as an arrow from the origin to (x, y).
+ * Inputs: `x`, `y` scalar components. Output: an `Arrow` node.
+ */
 export const Vector2D: ExtensionDef<'Arrow'> = {
     name: 'Vector2D',
     keyword: 'la-vec2d',
@@ -24,6 +28,10 @@ export const Vector2D: ExtensionDef<'Arrow'> = {
     },
 };
 
+/**
+ * Build a 1D vector (a length-n `Array` of scalars) from variadic scalar args.
+ * Inputs: `values` (variadic scalars). Output: a 1D `Array` of `Scalar`s.
+ */
 export const Vector: ExtensionDef<'Array'> = {
     name: 'Vector',
     keyword: 'la-vec',
@@ -48,6 +56,11 @@ export const Vector: ExtensionDef<'Array'> = {
     },
 };
 
+/**
+ * Assemble a 2×n matrix whose columns are the given points.
+ * Inputs: `points` (variadic points). Output: a 2×n `Array` (row 0 = x's, row
+ * 1 = y's). See `la-mat-from-point-array` for the single-Array-input variant.
+ */
 export const MatrixFromPoints: ExtensionDef<'Array'> = {
     name: 'MatrixFromPoints',
     keyword: 'la-mat-from-points',
@@ -78,6 +91,11 @@ export const MatrixFromPoints: ExtensionDef<'Array'> = {
     },
 };
 
+/**
+ * Assemble a 2×n matrix whose columns are the points in an input `Array`.
+ * Inputs: `points` (an `Array` of points). Output: a 2×n `Array` (row 0 = x's,
+ * row 1 = y's). Same as `la-mat-from-points` but takes one Array, not varargs.
+ */
 export const MatrixFromPointArray: ExtensionDef<'Array'> = {
     name: 'MatrixFromPointArray',
     keyword: 'la-mat-from-point-array',
@@ -108,6 +126,11 @@ export const MatrixFromPointArray: ExtensionDef<'Array'> = {
     },
 };
 
+/**
+ * Split a 2×n matrix back into its n column points — the inverse of
+ * `la-mat-from-points`. Inputs: `matrix` (a 2×n `Array`). Output: a length-n
+ * `Array` of `Point`s, one per column.
+ */
 export const MatrixToPoints: ExtensionDef<'Array'> = {
     name: 'MatrixToPoints',
     keyword: 'la-mat-to-points',
@@ -143,6 +166,12 @@ export const MatrixToPoints: ExtensionDef<'Array'> = {
     },
 };
 
+/**
+ * Matrix product a · b. Inputs: `a`, `b` (`Array` operands). A 1D operand is
+ * promoted like NumPy — the left prefers a row vector, the right a column —
+ * and the first shape-compatible interpretation is used. Throws on
+ * incompatible shapes. Output: the product as a 2D `Array` of scalars.
+ */
 export const MatMul: ExtensionDef<'Array'> = {
     name: 'MatMul',
     keyword: 'la-matmul',
@@ -206,6 +235,13 @@ export const MatMul: ExtensionDef<'Array'> = {
     },
 };
 
+/**
+ * Visualize a weighted sum of column vectors as a tip-to-tail chain.
+ * Inputs: `matrix` (a 2×n `Array` whose columns are the vectors) and `weights`
+ * (a length-n `Array` of scalars). Emits one cyan component `Arrow` per scaled
+ * column laid tip-to-tail, plus an orange resultant `Arrow` (`main`) from the
+ * origin to the total.
+ */
 export const VisualizeWeightSum: ExtensionDef<'Arrow'> = {
     name: 'VisualizeWeightSum',
     keyword: 'la-weighted-sum',
@@ -267,6 +303,13 @@ export const VisualizeWeightSum: ExtensionDef<'Arrow'> = {
     },
 };
 
+/**
+ * Visualize a 2×2 linear map by transforming an integer grid.
+ * Inputs: `matrix` (a 2×2 `Array`, row-major [a, b, c, d]). Maps every lattice
+ * line over [-5, 5]² through the matrix; shared lattice points are reused by
+ * identity so meeting lines join. Output: an `Array` of the transformed grid
+ * `Line`s.
+ */
 export const VisualizeGridTransform: ExtensionDef<'Array'> = {
     name: 'VisualizeGridTransform',
     keyword: 'la-grid-transform',
@@ -325,6 +368,15 @@ export const VisualizeGridTransform: ExtensionDef<'Array'> = {
     },
 };
 
+/**
+ * Visualize a 2×2 linear map as a colored fan from the origin.
+ * Inputs: `matrix` (a 2×2 `Array`, row-major [a, b, c, d]) and `n` (number of
+ * samples, default 60). Takes n points evenly spaced on the unit circle,
+ * transforms each by the matrix, and draws a `Line` from the origin to each
+ * transformed point. Each point and its line share one rainbow-gradient color.
+ * Output: an `Array` of the fan `Line`s. See `la-circle-transform2` for the
+ * input-point-to-output-point variant.
+ */
 export const VisualizeCircleTransform: ExtensionDef<'Array'> = {
     name: 'VisualizeCircleTransform',
     keyword: 'la-circle-transform',
@@ -387,6 +439,82 @@ export const VisualizeCircleTransform: ExtensionDef<'Array'> = {
     },
 };
 
+/**
+ * Visualize a 2×2 linear map as colored displacement lines.
+ * Inputs: `matrix` (a 2×2 `Array`, row-major [a, b, c, d]) and `n` (number of
+ * samples, default 60). Like `la-circle-transform`, but each `Line` connects an
+ * input point on the unit circle to its transformed output point (rather than
+ * the origin to the output). Each pair and its line share one rainbow-gradient
+ * color. Output: an `Array` of the connecting `Line`s.
+ */
+export const VisualizeCircleTransform2: ExtensionDef<'Array'> = {
+    name: 'VisualizeCircleTransform2',
+    keyword: 'la-circle-transform2',
+    parameters: [
+        { argName: 'matrix', type: 'Array', variadic: false },
+        { argName: 'n', type: 'Scalar', defaultValue: 60, variadic: false },
+    ],
+    outputType: 'Array',
+
+    compute: ({ matrix, n: nValue }) => {
+
+        // matrix is 2×2 row-major: [a, b, c, d] = [[a, b], [c, d]].
+        // A point (x, y) maps to (a*x + b*y, c*x + d*y).
+        const a = toNumber(matrix.elements[0]);
+        const b = toNumber(matrix.elements[1]);
+        const c = toNumber(matrix.elements[2]);
+        const d = toNumber(matrix.elements[3]);
+
+        const n = Math.max(1, Math.round(toNumber(nValue)));
+        const colors = rainbowGradient(n);
+
+        const result: Record<string, GeometricNode> = {};
+
+        // n points evenly spaced on the unit circle. Each line connects an
+        // INPUT point (on the circle) to its transformed OUTPUT point; both
+        // endpoints and the line share one gradient colour.
+        const lines: LineNode[] = [];
+        for (let i = 0; i < n; i++) {
+            const theta = (2 * Math.PI * i) / n;
+            const x = Math.cos(theta);
+            const y = Math.sin(theta);
+            const color = colors[i];
+
+            const pIn: PointNode = { type: 'Point', x, y, stroke: color };
+            result[`in_${i}`] = pIn; // top-level auxiliary → gets an id
+
+            const pOut: PointNode = {
+                type: 'Point',
+                x: a * x + b * y,
+                y: c * x + d * y,
+                stroke: color,
+            };
+            result[`out_${i}`] = pOut; // top-level auxiliary → gets an id
+
+            const line: LineNode = { type: 'Line', p1: pIn, p2: pOut, stroke: color };
+            result[`line_${i}`] = line; // top-level auxiliary → gets an id
+            lines.push(line);
+        }
+
+        result.main = {
+            type: 'Array',
+            elementType: 'Line',
+            shape: [lines.length],
+            length: lines.length,
+            elements: lines,
+        };
+
+        return result;
+    },
+};
+
+/**
+ * Render a numeric array as a grid of text boxes (e.g. to show a matrix).
+ * Inputs: `array` (a 1D or 2D `Array`), `x`/`y` (top-left origin), `cellWidth`/
+ * `cellHeight` (grid spacing), and `fontSize`. A 1D array lays out as a column;
+ * a 2D array as an r×c grid, row-major. Values are rounded to at most two
+ * decimals. Output: an `Array` of positioned `TextBox` nodes.
+ */
 export const ArrayToTextBoxes: ExtensionDef<'Array'> = {
     name: 'ArrayToTextBoxes',
     keyword: 'la-array-to-textboxes',
