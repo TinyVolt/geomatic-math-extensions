@@ -1,4 +1,4 @@
-import { ExtensionDef, ScalarNode, PointNode, LineNode, TextBoxNode, GeometricNode } from "./extension-api";
+import { ExtensionDef, ScalarNode, PointNode, LineNode, TextBoxNode, GeometricNode, Differentiable } from "./extension-api";
 import { transpose, reshape, matmul, rainbowGradient } from "./utils/linear-algebra-utils";
 import { toNumber } from "./utils/common";
 
@@ -602,6 +602,115 @@ export const ArrayToTextBoxes: ExtensionDef<'Array'> = {
         };
 
         return result;
+    },
+};
+
+/**
+ * The angle of a 2D vector in radians, measured counter-clockwise from the
+ * +x axis (via atan2, so the full range (-π, π]). Inputs: `x`, `y` scalar
+ * components. Output: a `Scalar`. Differentiable in `x` and `y`.
+ */
+export const GetRadianOf2DVector: ExtensionDef<'Scalar'> = {
+    name: 'GetRadianOf2DVector',
+    keyword: 'la-vec2d-radian',
+    parameters: [
+        { argName: 'x', type: 'Scalar', defaultValue: 1, variadic: false },
+        { argName: 'y', type: 'Scalar', defaultValue: 0, variadic: false },
+    ],
+    outputType: 'Scalar',
+
+    compute: ({ x, y }) => {
+        // Use the injected `atan2` builder (not Math.atan2) and pass the scalar
+        // inputs raw — `toNumber` would coerce them to plain numbers and strip
+        // the leaf tag, breaking `\backprop`.
+        return { main: { type: 'Scalar', value: atan2(y, x) } };
+    },
+};
+
+/**
+ * Dot product of two equal-length vectors: Σ aᵢ·bᵢ.
+ * Inputs: `a`, `b` (length-n `Array`s of scalars). Throws if the lengths
+ * differ. Output: a `Scalar`.
+ */
+export const DotProduct: ExtensionDef<'Scalar'> = {
+    name: 'DotProduct',
+    keyword: 'la-dot',
+    parameters: [
+        { argName: 'a', type: 'Array', variadic: false },
+        { argName: 'b', type: 'Array', variadic: false },
+    ],
+    outputType: 'Scalar',
+
+    compute: ({ a, b }) => {
+        // A dot product is only defined over scalar components.
+        if (a.elementType !== 'Scalar' || b.elementType !== 'Scalar') {
+            throw new Error(
+                `DotProduct: expected vectors of scalars, got '${a.elementType}' and '${b.elementType}'`
+            );
+        }
+
+        // Read elements raw and accumulate with the injected `mul`/`add`
+        // builders (not * / +) so the result stays differentiable.
+        const av = a.elements;
+        const bv = b.elements;
+        if (av.length !== bv.length) {
+            throw new Error(
+                `DotProduct: vectors must be the same length (got ${av.length} and ${bv.length})`
+            );
+        }
+        let sum: Differentiable = 0;
+        for (let i = 0; i < av.length; i++) {
+            sum = add(sum, mul(av[i], bv[i]));
+        }
+        return { main: { type: 'Scalar', value: sum } };
+    },
+};
+
+/**
+ * Project vector `v1` onto vector `v2`: (v1·v2 / v2·v2) · v2.
+ * Inputs: `v1`, `v2` (equal-length `Array`s of scalars). Throws if the lengths
+ * differ; if `v2` is the zero vector the projection is the zero vector. Output:
+ * a length-n `Array` of scalars (same length as the inputs).
+ */
+export const ProjectV1OnV2: ExtensionDef<'Array'> = {
+    name: 'ProjectV1OnV2',
+    keyword: 'la-project',
+    parameters: [
+        { argName: 'v1', type: 'Array', variadic: false },
+        { argName: 'v2', type: 'Array', variadic: false },
+    ],
+    outputType: 'Array',
+
+    compute: ({ v1, v2 }) => {
+        const a: number[] = v1.elements.map(toNumber);
+        const b: number[] = v2.elements.map(toNumber);
+        if (a.length !== b.length) {
+            throw new Error(
+                `ProjectV1OnV2: vectors must be the same length (got ${a.length} and ${b.length})`
+            );
+        }
+
+        let dot = 0;   // v1·v2
+        let bb = 0;    // v2·v2
+        for (let i = 0; i < a.length; i++) {
+            dot += a[i] * b[i];
+            bb += b[i] * b[i];
+        }
+        // Zero v2 → undefined direction; project to the zero vector.
+        const scale = bb === 0 ? 0 : dot / bb;
+
+        const n = a.length;
+        const elements: ScalarNode[] = b.map((bi) => ({ type: 'Scalar', value: scale * bi }));
+
+        return {
+            main: {
+                type: 'Array',
+                elementType: 'Scalar',
+                shape: [n],
+                length: n,
+                elements,
+            },
+        };
     },
 };
 
