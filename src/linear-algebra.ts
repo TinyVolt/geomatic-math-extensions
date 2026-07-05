@@ -418,7 +418,7 @@ export const VisualizeCircleTransform: ExtensionDef<'Array'> = {
                 type: 'Point',
                 x: a * x + b * y,
                 y: c * x + d * y,
-                stroke: color,
+                fill: color,
             };
             result[`pt_${i}`] = pOut; // top-level auxiliary → gets an id
 
@@ -487,7 +487,7 @@ export const VisualizeCircleTransform2: ExtensionDef<'Array'> = {
                 type: 'Point',
                 x: a * x + b * y,
                 y: c * x + d * y,
-                stroke: color,
+                fill: color,
             };
             result[`out_${i}`] = pOut; // top-level auxiliary → gets an id
 
