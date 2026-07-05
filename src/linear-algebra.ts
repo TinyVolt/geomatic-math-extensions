@@ -480,7 +480,7 @@ export const VisualizeCircleTransform2: ExtensionDef<'Array'> = {
             const y = Math.sin(theta);
             const color = colors[i];
 
-            const pIn: PointNode = { type: 'Point', x, y, stroke: color };
+            const pIn: PointNode = { type: 'Point', x, y, fill: color };
             result[`in_${i}`] = pIn; // top-level auxiliary → gets an id
 
             const pOut: PointNode = {
