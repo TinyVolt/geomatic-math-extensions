@@ -1,5 +1,6 @@
 import { ExtensionDef, ScalarNode, PointNode, LineNode, TextBoxNode, GeometricNode } from "./extension-api";
 import { transpose, reshape, matmul, rainbowGradient } from "./utils/linear-algebra-utils";
+import { toNumber } from "./utils/common";
 
 export const Vector2D: ExtensionDef<'Arrow'> = {
     name: 'Vector2D',
@@ -15,7 +16,7 @@ export const Vector2D: ExtensionDef<'Arrow'> = {
             main: {
                 type: 'Arrow',
                 p1: { type: 'Point', x: 0, y: 0 },
-                p2: { type: 'Point', x, y },
+                p2: { type: 'Point', x: toNumber(x), y: toNumber(y) },
                 label: '',
                 stroke: '#41dbc9'
             },
@@ -32,7 +33,7 @@ export const Vector: ExtensionDef<'Array'> = {
     outputType: 'Array',
 
     compute: ({ values }) => {
-        const elements = values.map((value: any) => ({ type: 'Scalar', value }));
+        const elements = values.map((value: any) => ({ type: 'Scalar', value: toNumber(value) }));
         const n = values.length;
 
         return {
@@ -116,13 +117,12 @@ export const MatrixToPoints: ExtensionDef<'Array'> = {
     outputType: 'Array',
 
     compute: ({ matrix }) => {
-        const num = (e: any) => (typeof e === 'number' ? e : e.value);
 
         // matrix is 2×n row-major: row 0 = all x's, row 1 = all y's.
         // Column i becomes the point (xs[i], ys[i]).
         const n  = matrix.shape[1];
-        const xs = matrix.elements.slice(0, n).map(num);
-        const ys = matrix.elements.slice(n, 2 * n).map(num);
+        const xs = matrix.elements.slice(0, n).map(toNumber);
+        const ys = matrix.elements.slice(n, 2 * n).map(toNumber);
 
         const result: Record<string, GeometricNode> = {};
         const points: PointNode[] = xs.map((x: number, i: number) => ({ type: 'Point', x, y: ys[i] }));
@@ -153,10 +153,9 @@ export const MatMul: ExtensionDef<'Array'> = {
     outputType: 'Array',
 
     compute: ({ a, b }) => {
-        const num = (e: any) => (typeof e === 'number' ? e : e.value);
 
-        const aVals: number[] = a.elements.map(num);
-        const bVals: number[] = b.elements.map(num);
+        const aVals: number[] = a.elements.map(toNumber);
+        const bVals: number[] = b.elements.map(toNumber);
 
         // Candidate 2D interpretations of an operand. A 2D array has exactly
         // one; a 1D array of length p may be a row (1×p) or a column (p×1),
@@ -222,14 +221,13 @@ export const VisualizeWeightSum: ExtensionDef<'Arrow'> = {
 
         // Array elements arrive as plain numbers (a Scalar serializes to a
         // bare number), so read each element directly rather than `.value`.
-        const num = (e: any) => (typeof e === 'number' ? e : e.value);
 
         // matrix is 2×n row-major: row 0 = all x-components, row 1 = all y's.
         // Column i is the 2D vector (xs[i], ys[i]).
         const n  = matrix.shape[1];
-        const xs = matrix.elements.slice(0, n).map(num);
-        const ys = matrix.elements.slice(n, 2 * n).map(num);
-        const w  = weights.elements.map(num);
+        const xs = matrix.elements.slice(0, n).map(toNumber);
+        const ys = matrix.elements.slice(n, 2 * n).map(toNumber);
+        const w  = weights.elements.map(toNumber);
 
         const result: Record<string, GeometricNode> = {};
 
@@ -278,14 +276,13 @@ export const VisualizeGridTransform: ExtensionDef<'Array'> = {
     outputType: 'Array',
 
     compute: ({ matrix }) => {
-        const num = (e: any) => (typeof e === 'number' ? e : e.value);
 
         // matrix is 2×2 row-major: [a, b, c, d] = [[a, b], [c, d]].
         // A point (x, y) maps to (a*x + b*y, c*x + d*y).
-        const a = num(matrix.elements[0]);
-        const b = num(matrix.elements[1]);
-        const c = num(matrix.elements[2]);
-        const d = num(matrix.elements[3]);
+        const a = toNumber(matrix.elements[0]);
+        const b = toNumber(matrix.elements[1]);
+        const c = toNumber(matrix.elements[2]);
+        const d = toNumber(matrix.elements[3]);
 
         const R = 5; // grid spans the integer range [-5, 5] before transform.
         const result: Record<string, GeometricNode> = {};
@@ -338,16 +335,15 @@ export const VisualizeCircleTransform: ExtensionDef<'Array'> = {
     outputType: 'Array',
 
     compute: ({ matrix, n: nValue }) => {
-        const num = (e: any) => (typeof e === 'number' ? e : e.value);
 
         // matrix is 2×2 row-major: [a, b, c, d] = [[a, b], [c, d]].
         // A point (x, y) maps to (a*x + b*y, c*x + d*y).
-        const a = num(matrix.elements[0]);
-        const b = num(matrix.elements[1]);
-        const c = num(matrix.elements[2]);
-        const d = num(matrix.elements[3]);
+        const a = toNumber(matrix.elements[0]);
+        const b = toNumber(matrix.elements[1]);
+        const c = toNumber(matrix.elements[2]);
+        const d = toNumber(matrix.elements[3]);
 
-        const n = Math.max(1, Math.round(num(nValue)));
+        const n = Math.max(1, Math.round(toNumber(nValue)));
         const colors = rainbowGradient(n);
 
         const result: Record<string, GeometricNode> = {};
@@ -404,8 +400,12 @@ export const ArrayToTextBoxes: ExtensionDef<'Array'> = {
     ],
     outputType: 'Array',
 
-    compute: ({ array, x, y, cellWidth, cellHeight, fontSize: fontSizeValue }) => {
-        const num = (e: any) => (typeof e === 'number' ? e : e.value);
+    compute: ({ array, x: xArg, y: yArg, cellWidth: cwArg, cellHeight: chArg, fontSize: fsArg }) => {
+        const x = toNumber(xArg);
+        const y = toNumber(yArg);
+        const cellWidth = toNumber(cwArg);
+        const cellHeight = toNumber(chArg);
+        const fontSizeValue = toNumber(fsArg);
 
         // Integers render as-is; non-integers are rounded to at most two
         // decimals (trailing zeros dropped, e.g. 1.5 stays "1.5", not "1.50").
@@ -430,7 +430,7 @@ export const ArrayToTextBoxes: ExtensionDef<'Array'> = {
             );
         }
 
-        const values = array.elements.map(num);
+        const values = array.elements.map(toNumber);
 
         const result: Record<string, GeometricNode> = {};
         const boxes: TextBoxNode[] = [];

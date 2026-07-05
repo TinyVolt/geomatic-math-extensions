@@ -56,7 +56,7 @@ export function hslToHex(h: number, s: number, l: number): string {
  * which is what makes a fan of lines/points look like the reference image.
  */
 export function rainbowGradient(n: number, saturation = 100, lightness = 55): string[] {
-    if (n <= 0) return [];
+    if (!Number.isFinite(n) || n <= 0) return [];
     const colors: string[] = new Array(n);
     for (let i = 0; i < n; i++) {
         colors[i] = hslToHex((360 * i) / n, saturation, lightness);
