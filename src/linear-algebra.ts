@@ -838,6 +838,78 @@ export const MarkovSimulation: ExtensionDef<'Array'> = {
 };
 
 /**
+ * The image of the unit circle under a 2×2 linear map, as an `Ellipse`.
+ * Inputs: `matrix` (a 2×2 `Array`, row-major [a, b, c, d]) and `center`
+ * (optional `Point`, default `p0` — the ellipse's center). The ellipse's radii
+ * are the singular values of the matrix and its rotation is the direction of
+ * the major axis (the top eigenvector of A·Aᵀ). Different matrices can share
+ * an image (the right singular vectors are discarded), so this map is
+ * many-to-one — that's expected. Output: an `Ellipse` node.
+ */
+export const MatrixToEllipse: ExtensionDef<'Ellipse'> = {
+    name: 'MatrixToEllipse',
+    keyword: 'la-mat-to-ellipse',
+    parameters: [
+        { argName: 'matrix', type: 'Array', variadic: false },
+        { argName: 'center', type: 'Point', defaultValue: 'p0', variadic: false },
+    ],
+    outputType: 'Ellipse',
+
+    compute: ({ matrix, center }) => {
+        // matrix is 2×2 row-major: [a, b, c, d] = [[a, b], [c, d]].
+        const a = toNumber(matrix.elements[0]);
+        const b = toNumber(matrix.elements[1]);
+        const c = toNumber(matrix.elements[2]);
+        const d = toNumber(matrix.elements[3]);
+
+        // The unit circle maps to { A·u : |u| = 1 }, an ellipse whose semi-axes
+        // are the singular values of A and whose axes point along the
+        // eigenvectors of M = A·Aᵀ (symmetric 2×2, so closed-form eigen-pairs).
+        const m00 = a * a + b * b;
+        const m01 = a * c + b * d;
+        const m11 = c * c + d * d;
+
+        // Eigenvalues of M: (trace ± disc) / 2; singular values are their roots.
+        // Clamp at 0 so float noise on a singular matrix can't produce NaN.
+        const diff = m00 - m11;
+        const disc = Math.sqrt(diff * diff + 4 * m01 * m01);
+        const radiusX = Math.sqrt(Math.max(0, (m00 + m11 + disc) / 2));
+        const radiusY = Math.sqrt(Math.max(0, (m00 + m11 - disc) / 2));
+
+        // Major-axis direction = top eigenvector of M. When M is a multiple of
+        // the identity (the image is a circle) atan2(0, 0) = 0, a fine choice.
+        const rotation = 0.5 * Math.atan2(2 * m01, diff);
+
+        const centerPoint: PointNode =
+            center && center.type === 'Point'
+                ? { type: 'Point', x: toNumber(center.x), y: toNumber(center.y), hidden: true }
+                : { type: 'Point', x: 0, y: 0, hidden: true };
+
+        const result: Record<string, GeometricNode> = {};
+
+        // The Ellipse's Point/Scalar fields must each be top-level auxiliaries
+        // to get ids; the ellipse references the SAME objects by identity.
+        result.center = centerPoint;
+        const rx: ScalarNode = { type: 'Scalar', value: radiusX };
+        const ry: ScalarNode = { type: 'Scalar', value: radiusY };
+        const rot: ScalarNode = { type: 'Scalar', value: rotation };
+        result.radiusX = rx;
+        result.radiusY = ry;
+        result.rotation = rot;
+
+        result.main = {
+            type: 'Ellipse',
+            center: centerPoint,
+            radiusX: rx,
+            radiusY: ry,
+            rotation: rot,
+        };
+
+        return result;
+    },
+};
+
+/**
  * A random n×n column-stochastic Markov matrix: each column is the softmax of
  * random values, so all entries are positive and every COLUMN sums to 1 —
  * matching the p ← T·p convention used by `la-markov`. Inputs: `n` (number of
