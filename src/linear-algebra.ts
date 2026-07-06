@@ -717,12 +717,13 @@ export const ProjectV1OnV2: ExtensionDef<'Arrow'> = {
 /**
  * Simulate a Markov chain and draw its distribution over time as stacked bars.
  * Inputs: `n_states`, `n_iter` (scalars), `transition_matrix` (an
- * n_states×n_states row-stochastic `Array`: entry [i][j] = P(i → j), so the
- * distribution evolves as p ← p·T), `start_dist` (optional length-n_states
- * `Array`; uniform if omitted), `col_height` (default 2) and `col_width`
- * (default 0.3). Column t shows the distribution at time t as n_states
- * stacked rectangles whose heights sum to `col_height`; all rects in a column
- * share one rainbow-gradient color. Output: an `Array` of `Polygon` rects.
+ * n_states×n_states column-stochastic `Array`: entry [i][j] = P(j → i), i.e.
+ * each COLUMN sums to 1, and the distribution evolves as p ← T·p),
+ * `start_dist` (optional length-n_states `Array`; uniform if omitted),
+ * `col_height` (default 2) and `col_width` (default 0.3). Column t shows the
+ * distribution at time t as n_states stacked rectangles whose heights sum to
+ * `col_height`; all rects in a column share one rainbow-gradient color.
+ * Output: an `Array` of `Polygon` rects.
  */
 export const MarkovSimulation: ExtensionDef<'Array'> = {
     name: 'MarkovSimulation',
@@ -766,10 +767,12 @@ export const MarkovSimulation: ExtensionDef<'Array'> = {
             p = new Array(nStates).fill(1 / nStates);
         }
 
-        // Evolve p ← p·T for each time step; distributions[t] is column t.
+        // Evolve p ← T·p (column-stochastic convention) for each time step;
+        // distributions[t] is the distribution at time t. p is treated as a
+        // column vector: n×n · n×1 → n×1, then flattened back.
         const distributions: number[][] = [p];
         for (let t = 1; t < nIter; t++) {
-            p = matmul([p], T)[0];
+            p = matmul(T, p.map((v) => [v])).map((row) => row[0]);
             distributions.push(p);
         }
 
@@ -790,7 +793,7 @@ export const MarkovSimulation: ExtensionDef<'Array'> = {
                 const y1 = y0 + distributions[t][s] * colHeight;
 
                 const { polygon, corners } = makeRect(x0, y0, x1, y1, color);
-                corners.forEach((p, k) => { result[`pt_${t}_${s}_${k}`] = p; });
+                corners.forEach((pt, k) => { result[`pt_${t}_${s}_${k}`] = pt; });
                 result[`rect_${t}_${s}`] = polygon;
                 rects.push(polygon);
 
