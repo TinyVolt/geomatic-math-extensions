@@ -1,5 +1,5 @@
 import { ExtensionDef, ScalarNode, PointNode, LineNode, TextBoxNode, GeometricNode, Differentiable } from "./extension-api";
-import { transpose, reshape, matmul, rainbowGradient, makeRect } from "./utils/linear-algebra-utils";
+import { transpose, reshape, matmul, rainbowGradient, makeRect, hslToHex } from "./utils/linear-algebra-utils";
 import { toNumber } from "./utils/common";
 
 /**
@@ -722,8 +722,9 @@ export const ProjectV1OnV2: ExtensionDef<'Arrow'> = {
  * `start_dist` (optional length-n_states `Array`; uniform if omitted),
  * `col_height` (default 2) and `col_width` (default 0.3). Column t shows the
  * distribution at time t as n_states stacked rectangles whose heights sum to
- * `col_height`; all rects in a column share one rainbow-gradient color.
- * Output: an `Array` of `Polygon` rects.
+ * `col_height`. Each rect is coloured by its probability (blue = 0 → red = 1),
+ * so similar distributions look similar, and a small gap separates the rects
+ * within a column. Output: an `Array` of `Polygon` rects.
  */
 export const MarkovSimulation: ExtensionDef<'Array'> = {
     name: 'MarkovSimulation',
@@ -776,23 +777,33 @@ export const MarkovSimulation: ExtensionDef<'Array'> = {
             distributions.push(p);
         }
 
-        const colors = rainbowGradient(nIter);
         const result: Record<string, GeometricNode> = {};
         const rects: GeometricNode[] = [];
 
+        // Colour encodes the rect's probability (its relative height), so
+        // similar distributions look similar regardless of position: hue
+        // sweeps blue (p = 0) → red (p = 1).
+        const colorFor = (prob: number) =>
+            hslToHex(240 * (1 - Math.min(1, Math.max(0, prob))), 100, 55);
+
+        // A whisker of vertical breathing room between stacked rects, so the
+        // per-state boundaries stay visible.
+        const gap = colHeight * 0.015;
+
         // Column t occupies x ∈ [t·(1.5·w), t·(1.5·w) + w]; its states stack
         // upward from y = 0, heights proportional to probability and summing
-        // to col_height.
+        // to col_height (each rect ceding `gap` to the seam above it).
         for (let t = 0; t < nIter; t++) {
             const x0 = t * colWidth * 1.5;
             const x1 = x0 + colWidth;
-            const color = colors[t];
             let y0 = 0;
 
             for (let s = 0; s < nStates; s++) {
-                const y1 = y0 + distributions[t][s] * colHeight;
+                const prob = distributions[t][s];
+                const y1 = y0 + prob * colHeight;
+                const color = colorFor(prob);
 
-                const { polygon, corners } = makeRect(x0, y0, x1, y1, color);
+                const { polygon, corners } = makeRect(x0, y0, x1, Math.max(y0, y1 - gap), color);
                 corners.forEach((pt, k) => { result[`pt_${t}_${s}_${k}`] = pt; });
                 result[`rect_${t}_${s}`] = polygon;
                 rects.push(polygon);
