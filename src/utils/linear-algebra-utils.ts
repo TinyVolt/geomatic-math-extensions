@@ -49,6 +49,19 @@ export function makeRect(
 }
 
 /**
+ * Softmax: map a vector of reals to a probability distribution
+ * (all entries positive, summing to 1). The max is subtracted before
+ * exponentiating for numerical stability; the input is unchanged.
+ */
+export function softmax(values: number[]): number[] {
+    if (values.length === 0) return [];
+    const max = Math.max(...values);
+    const exps = values.map((v) => Math.exp(v - max));
+    const sum = exps.reduce((acc, e) => acc + e, 0);
+    return exps.map((e) => e / sum);
+}
+
+/**
  * Convert an HSL colour to a `#rrggbb` hex string.
  *   h in [0, 360), s and l in [0, 100].
  * Hex is used (rather than a CSS `hsl(...)` string) so the output matches the

@@ -1,5 +1,5 @@
 import { ExtensionDef, ScalarNode, PointNode, LineNode, TextBoxNode, GeometricNode, Differentiable } from "./extension-api";
-import { transpose, reshape, matmul, rainbowGradient, makeRect, hslToHex } from "./utils/linear-algebra-utils";
+import { transpose, reshape, matmul, rainbowGradient, makeRect, hslToHex, softmax } from "./utils/linear-algebra-utils";
 import { toNumber } from "./utils/common";
 
 /**
@@ -728,7 +728,7 @@ export const ProjectV1OnV2: ExtensionDef<'Arrow'> = {
  */
 export const MarkovSimulation: ExtensionDef<'Array'> = {
     name: 'MarkovSimulation',
-    keyword: 'la-markov',
+    keyword: 'la-markov-simulation',
     parameters: [
         { argName: 'n_states', type: 'Scalar', variadic: false },
         { argName: 'n_iter', type: 'Scalar', variadic: false },
@@ -821,6 +821,47 @@ export const MarkovSimulation: ExtensionDef<'Array'> = {
         };
 
         return result;
+    },
+};
+
+/**
+ * A random n×n column-stochastic Markov matrix: each column is the softmax of
+ * random values, so all entries are positive and every COLUMN sums to 1 —
+ * matching the p ← T·p convention used by `la-markov`. Inputs: `n` (number of
+ * states). Output: an n×n `Array` of scalars (row-major). Note: the matrix is
+ * re-randomized on every recompute.
+ */
+export const MarkovMatrix: ExtensionDef<'Array'> = {
+    name: 'MarkovMatrix',
+    keyword: 'la-markov-matrix',
+    parameters: [
+        { argName: 'n', type: 'Scalar', variadic: false },
+    ],
+    outputType: 'Array',
+
+    compute: ({ n: nValue }) => {
+        const n = Math.max(1, Math.round(toNumber(nValue)));
+
+        // Draw each column as the softmax of n uniform random values. The
+        // [-2, 2] spread keeps the entries varied without saturating softmax.
+        const columns: number[][] = [];
+        for (let j = 0; j < n; j++) {
+            columns.push(softmax(Array.from({ length: n }, () => Math.random() * 4 - 2)));
+        }
+
+        // Columns were built column-wise; transpose to row-major for the node.
+        const elements: ScalarNode[] = transpose(columns).flat()
+            .map((value) => ({ type: 'Scalar', value }));
+
+        return {
+            main: {
+                type: 'Array',
+                elementType: 'Scalar',
+                shape: [n, n],
+                length: n * n,
+                elements,
+            },
+        };
     },
 };
 
