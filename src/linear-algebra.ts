@@ -878,7 +878,8 @@ export const MatrixToEllipse: ExtensionDef<'Ellipse'> = {
 
         // Major-axis direction = top eigenvector of M. When M is a multiple of
         // the identity (the image is a circle) atan2(0, 0) = 0, a fine choice.
-        const rotation = 0.5 * Math.atan2(2 * m01, diff);
+        // The renderer reads Ellipse.rotation in DEGREES, not radians.
+        const rotation = (0.5 * Math.atan2(2 * m01, diff)) * (180 / Math.PI);
 
         const centerPoint: PointNode =
             center && center.type === 'Point'
