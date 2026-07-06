@@ -155,6 +155,11 @@ export interface TriangleNode extends Node {
     vertices: PointNode[];
 }
 
+export interface PolygonNode extends Node {
+    type: 'Polygon';
+    vertices: PointNode[];
+}
+
 export interface LineNode extends Node {
     type: 'Line';
     p1: PointNode;
@@ -231,6 +236,7 @@ export interface NodeTypeMap {
     Complex:         ComplexNode;
     Bool:            BooleanNode;
     Triangle:        TriangleNode;
+    Polygon:         PolygonNode;
     Line:            LineNode;
     Circle:          CircleNode;
     Ellipse:         EllipseNode;

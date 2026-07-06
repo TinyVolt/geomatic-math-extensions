@@ -1,3 +1,5 @@
+import { PointNode, PolygonNode } from "../extension-api";
+
 /**
  * Transpose a row-major 2D array: an r×c matrix becomes c×r.
  * The element type is preserved, so this works for numbers, SymExprs, etc.
@@ -24,6 +26,26 @@ export function reshape<T>(flat: T[], rows: number, cols: number): T[][] {
         result.push(flat.slice(r * cols, r * cols + cols));
     }
     return result;
+}
+
+/**
+ * Build an axis-aligned rectangle as a Polygon over the box [x0, x1]×[y0, y1],
+ * with the given colour applied as both stroke and fill. Returns the polygon
+ * AND its four corner Point nodes (CCW from bottom-left): per the extension
+ * contract the caller must register every corner as a top-level auxiliary so
+ * it gets an id — the polygon references the same objects by identity.
+ */
+export function makeRect(
+    x0: number, y0: number, x1: number, y1: number, color?: string
+): { polygon: PolygonNode; corners: PointNode[] } {
+    const style = color ? { stroke: color, fill: color } : {};
+    const corners: PointNode[] = [
+        { type: 'Point', x: x0, y: y0, ...style },
+        { type: 'Point', x: x1, y: y0, ...style },
+        { type: 'Point', x: x1, y: y1, ...style },
+        { type: 'Point', x: x0, y: y1, ...style },
+    ];
+    return { polygon: { type: 'Polygon', vertices: corners, ...style }, corners };
 }
 
 /**

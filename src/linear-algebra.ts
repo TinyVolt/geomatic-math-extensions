@@ -1,5 +1,5 @@
 import { ExtensionDef, ScalarNode, PointNode, LineNode, TextBoxNode, GeometricNode, Differentiable } from "./extension-api";
-import { transpose, reshape, matmul, rainbowGradient } from "./utils/linear-algebra-utils";
+import { transpose, reshape, matmul, rainbowGradient, makeRect } from "./utils/linear-algebra-utils";
 import { toNumber } from "./utils/common";
 
 /**
@@ -711,6 +711,102 @@ export const ProjectV1OnV2: ExtensionDef<'Arrow'> = {
                 stroke: '#41dbc9',
             },
         };
+    },
+};
+
+/**
+ * Simulate a Markov chain and draw its distribution over time as stacked bars.
+ * Inputs: `n_states`, `n_iter` (scalars), `transition_matrix` (an
+ * n_states×n_states row-stochastic `Array`: entry [i][j] = P(i → j), so the
+ * distribution evolves as p ← p·T), `start_dist` (optional length-n_states
+ * `Array`; uniform if omitted), `col_height` (default 2) and `col_width`
+ * (default 0.3). Column t shows the distribution at time t as n_states
+ * stacked rectangles whose heights sum to `col_height`; all rects in a column
+ * share one rainbow-gradient color. Output: an `Array` of `Polygon` rects.
+ */
+export const MarkovSimulation: ExtensionDef<'Array'> = {
+    name: 'MarkovSimulation',
+    keyword: 'la-markov',
+    parameters: [
+        { argName: 'n_states', type: 'Scalar', variadic: false },
+        { argName: 'n_iter', type: 'Scalar', variadic: false },
+        { argName: 'transition_matrix', type: 'Array', variadic: false },
+        { argName: 'start_dist', type: 'Array', defaultValue: 0, variadic: false },
+        { argName: 'col_height', type: 'Scalar', defaultValue: 2, variadic: false },
+        { argName: 'col_width', type: 'Scalar', defaultValue: 0.3, variadic: false },
+    ],
+    outputType: 'Array',
+
+    compute: ({ n_states, n_iter, transition_matrix, start_dist, col_height, col_width }) => {
+        const nStates = Math.max(1, Math.round(toNumber(n_states)));
+        const nIter = Math.max(1, Math.round(toNumber(n_iter)));
+        const colHeight = toNumber(col_height);
+        const colWidth = toNumber(col_width);
+
+        const tVals: number[] = transition_matrix.elements.map(toNumber);
+        if (tVals.length !== nStates * nStates) {
+            throw new Error(
+                `MarkovSimulation: transition_matrix must be ${nStates}×${nStates} ` +
+                `(${nStates * nStates} entries), got ${tVals.length}`
+            );
+        }
+        const T = reshape(tVals, nStates, nStates);
+
+        // Starting distribution: the optional Array param, or uniform when the
+        // user omitted it (the default arrives as a plain 0, not an Array node).
+        let p: number[];
+        if (start_dist && start_dist.type === 'Array') {
+            p = start_dist.elements.map(toNumber);
+            if (p.length !== nStates) {
+                throw new Error(
+                    `MarkovSimulation: start_dist must have length ${nStates}, got ${p.length}`
+                );
+            }
+        } else {
+            p = new Array(nStates).fill(1 / nStates);
+        }
+
+        // Evolve p ← p·T for each time step; distributions[t] is column t.
+        const distributions: number[][] = [p];
+        for (let t = 1; t < nIter; t++) {
+            p = matmul([p], T)[0];
+            distributions.push(p);
+        }
+
+        const colors = rainbowGradient(nIter);
+        const result: Record<string, GeometricNode> = {};
+        const rects: GeometricNode[] = [];
+
+        // Column t occupies x ∈ [t·(1.5·w), t·(1.5·w) + w]; its states stack
+        // upward from y = 0, heights proportional to probability and summing
+        // to col_height.
+        for (let t = 0; t < nIter; t++) {
+            const x0 = t * colWidth * 1.5;
+            const x1 = x0 + colWidth;
+            const color = colors[t];
+            let y0 = 0;
+
+            for (let s = 0; s < nStates; s++) {
+                const y1 = y0 + distributions[t][s] * colHeight;
+
+                const { polygon, corners } = makeRect(x0, y0, x1, y1, color);
+                corners.forEach((p, k) => { result[`pt_${t}_${s}_${k}`] = p; });
+                result[`rect_${t}_${s}`] = polygon;
+                rects.push(polygon);
+
+                y0 = y1;
+            }
+        }
+
+        result.main = {
+            type: 'Array',
+            elementType: 'Polygon',
+            shape: [rects.length],
+            length: rects.length,
+            elements: rects,
+        };
+
+        return result;
     },
 };
 
