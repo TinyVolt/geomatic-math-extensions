@@ -101,6 +101,7 @@ export interface Node {
     type: string;
     stroke?: string;
     fill?: string;
+    hidden?: boolean;
 }
 
 /** Output of a rich-text interpolation: either plain prose or a value pulled from a node.

@@ -274,12 +274,12 @@ export const VisualizeWeightSum: ExtensionDef<'Arrow'> = {
         const result: Record<string, GeometricNode> = {};
 
         // Tip-to-tail chain as REAL (auxiliary) Point nodes. pts[0] = origin.
-        const pts: PointNode[] = [{ type: 'Point', x: 0, y: 0 }];
+        const pts: PointNode[] = [{ type: 'Point', x: 0, y: 0, hidden: true }];
         let cx = 0, cy = 0;
         for (let i = 0; i < n; i++) {
             cx += w[i] * xs[i];
             cy += w[i] * ys[i];
-            pts.push({ type: 'Point', x: cx, y: cy });
+            pts.push({ type: 'Point', x: cx, y: cy, hidden: true });
         }
 
         // Register every point as a top-level auxiliary node so it gets an id.
@@ -343,7 +343,7 @@ export const VisualizeGridTransform: ExtensionDef<'Array'> = {
             const key = `${x},${y}`;
             let p = pointCache.get(key);
             if (!p) {
-                p = { type: 'Point', x: a * x + b * y, y: c * x + d * y };
+                p = { type: 'Point', x: a * x + b * y, y: c * x + d * y, hidden: true };
                 pointCache.set(key, p);
                 result[`pt_${x}_${y}`] = p; // top-level auxiliary → gets an id
             }
@@ -583,6 +583,7 @@ export const ArrayToTextBoxes: ExtensionDef<'Array'> = {
                     type: 'Point',
                     x: x + c * cellWidth,
                     y: y - r * cellHeight,
+                    hidden: true,
                 };
                 const box: TextBoxNode = {
                     type: 'TextBox',
@@ -804,7 +805,10 @@ export const MarkovSimulation: ExtensionDef<'Array'> = {
                 const color = colorFor(prob);
 
                 const { polygon, corners } = makeRect(x0, y0, x1, Math.max(y0, y1 - gap), color);
-                corners.forEach((pt, k) => { result[`pt_${t}_${s}_${k}`] = pt; });
+                corners.forEach((pt, k) => {
+                    pt.hidden = true;
+                    result[`pt_${t}_${s}_${k}`] = pt;
+                });
                 result[`rect_${t}_${s}`] = polygon;
                 rects.push(polygon);
 
