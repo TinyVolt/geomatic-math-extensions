@@ -717,36 +717,44 @@ export const ProjectV1OnV2: ExtensionDef<'Arrow'> = {
 
 /**
  * Simulate a Markov chain and draw its distribution over time as stacked bars.
- * Inputs: `n_states`, `n_iter` (scalars), `transition_matrix` (an
- * n_states×n_states column-stochastic `Array`: entry [i][j] = P(j → i), i.e.
+ * Inputs: `n-states`, `n-iter` (scalars), `transition-matrix` (an
+ * n-states×n-states column-stochastic `Array`: entry [i][j] = P(j → i), i.e.
  * each COLUMN sums to 1, and the distribution evolves as p ← T·p),
- * `start_dist` (optional length-n_states `Array`; uniform if omitted),
- * `col_height` (default 2) and `col_width` (default 0.3). Column t shows the
- * distribution at time t as n_states stacked rectangles whose heights sum to
- * `col_height`. Each rect is coloured by its probability (blue = 0 → red = 1),
- * so similar distributions look similar, and a small gap separates the rects
- * within a column. Output: an `Array` of `Polygon` rects.
+ * `start-dist` (optional length-n-states `Array`; uniform if omitted),
+ * `col-height` (default 2), `col-width` (default 0.3), and `offsetX`/`offsetY`
+ * (default 0) — the bottom-left corner from which the columns are drawn.
+ * Column t shows the distribution at time t as n-states stacked rectangles
+ * whose heights sum to `col-height`. Each rect is coloured by its probability
+ * (blue = 0 → red = 1), so similar distributions look similar, and a small gap
+ * separates the rects within a column. Output: an `Array` of `Polygon` rects.
  */
 export const MarkovSimulation: ExtensionDef<'Array'> = {
     name: 'MarkovSimulation',
     keyword: 'la-markov-simulation',
     parameters: [
-        { argName: 'n_states', type: 'Scalar', variadic: false },
-        { argName: 'n_iter', type: 'Scalar', variadic: false },
-        { argName: 'transition_matrix', type: 'Array', variadic: false },
-        { argName: 'start_dist', type: 'Array', defaultValue: 0, variadic: false },
-        { argName: 'col_height', type: 'Scalar', defaultValue: 2, variadic: false },
-        { argName: 'col_width', type: 'Scalar', defaultValue: 0.3, variadic: false },
+        { argName: 'n-states', type: 'Scalar', variadic: false },
+        { argName: 'n-iter', type: 'Scalar', variadic: false },
+        { argName: 'transition-matrix', type: 'Array', variadic: false },
+        { argName: 'start-dist', type: 'Array', variadic: false },
+        { argName: 'col-height', type: 'Scalar', defaultValue: 2, variadic: false },
+        { argName: 'col-width', type: 'Scalar', defaultValue: 0.3, variadic: false },
+        { argName: 'offsetX', type: 'Scalar', defaultValue: 0, variadic: false },
+        { argName: 'offsetY', type: 'Scalar', defaultValue: 0, variadic: false },
     ],
     outputType: 'Array',
 
-    compute: ({ n_states, n_iter, transition_matrix, start_dist, col_height, col_width }) => {
-        const nStates = Math.max(1, Math.round(toNumber(n_states)));
-        const nIter = Math.max(1, Math.round(toNumber(n_iter)));
-        const colHeight = toNumber(col_height);
-        const colWidth = toNumber(col_width);
+    compute: (args) => {
+        // Kebab-case argNames aren't destructurable; read them off the args object.
+        const transitionMatrix = args['transition-matrix'];
+        const startDist = args['start-dist'];
+        const nStates = Math.max(1, Math.round(toNumber(args['n-states'])));
+        const nIter = Math.max(1, Math.round(toNumber(args['n-iter'])));
+        const colHeight = toNumber(args['col-height']);
+        const colWidth = toNumber(args['col-width']);
+        const offsetX = toNumber(args.offsetX);
+        const offsetY = toNumber(args.offsetY);
 
-        const tVals: number[] = transition_matrix.elements.map(toNumber);
+        const tVals: number[] = transitionMatrix.elements.map(toNumber);
         if (tVals.length !== nStates * nStates) {
             throw new Error(
                 `MarkovSimulation: transition_matrix must be ${nStates}×${nStates} ` +
@@ -758,11 +766,11 @@ export const MarkovSimulation: ExtensionDef<'Array'> = {
         // Starting distribution: the optional Array param, or uniform when the
         // user omitted it (the default arrives as a plain 0, not an Array node).
         let p: number[];
-        if (start_dist && start_dist.type === 'Array') {
-            p = start_dist.elements.map(toNumber);
+        if (startDist && startDist.type === 'Array') {
+            p = startDist.elements.map(toNumber);
             if (p.length !== nStates) {
                 throw new Error(
-                    `MarkovSimulation: start_dist must have length ${nStates}, got ${p.length}`
+                    `MarkovSimulation: start-dist must have length ${nStates}, got ${p.length}`
                 );
             }
         } else {
@@ -791,13 +799,14 @@ export const MarkovSimulation: ExtensionDef<'Array'> = {
         // per-state boundaries stay visible.
         const gap = colHeight * 0.015;
 
-        // Column t occupies x ∈ [t·(1.5·w), t·(1.5·w) + w]; its states stack
-        // upward from y = 0, heights proportional to probability and summing
-        // to col_height (each rect ceding `gap` to the seam above it).
+        // Columns are drawn from the (offsetX, offsetY) origin: column t
+        // occupies x ∈ offsetX + [t·(1.5·w), t·(1.5·w) + w]; its states stack
+        // upward from y = offsetY, heights proportional to probability and
+        // summing to col-height (each rect ceding `gap` to the seam above it).
         for (let t = 0; t < nIter; t++) {
-            const x0 = t * colWidth * 1.5;
+            const x0 = offsetX + t * colWidth * 1.5;
             const x1 = x0 + colWidth;
-            let y0 = 0;
+            let y0 = offsetY;
 
             for (let s = 0; s < nStates; s++) {
                 const prob = distributions[t][s];
