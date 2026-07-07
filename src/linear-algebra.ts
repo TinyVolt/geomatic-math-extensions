@@ -22,15 +22,19 @@ export const Vector2D: ExtensionDef<'Arrow'> = {
     compute: ({ x, y, offsetX, offsetY }) => {
         const ox = toNumber(offsetX);
         const oy = toNumber(offsetY);
-        return {
-            main: {
-                type: 'Arrow',
-                p1: { type: 'Point', x: ox, y: oy },
-                p2: { type: 'Point', x: ox + toNumber(x), y: oy + toNumber(y) },
-                label: '',
-                stroke: '#41dbc9'
-            },
+        const result: Record<string, GeometricNode> = {};
+        const p1 = { type: 'Point', x: ox, y: oy, hidden: true } as PointNode;
+        const p2 = { type: 'Point', x: ox + toNumber(x), y: oy + toNumber(y), hidden: true } as PointNode;
+        result['p1'] = p1;
+        result['p2'] = p2;
+        result.main = {
+            type: 'Arrow',
+            p1,
+            p2,
+            label: '',
+            stroke: '#41dbc9'
         };
+        return result;
     },
 };
 
