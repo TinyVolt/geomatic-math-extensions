@@ -130,6 +130,55 @@ export function matmul(a: number[][], b: number[][]): number[][] {
 }
 
 /**
+ * "True isometric" projection of a 3D point onto the 2D canvas. The three axes
+ * appear 120° apart on screen: +x runs down-right, +y straight up, +z
+ * down-left. Concretely
+ *   screenX = (√3/2)·(x − z)
+ *   screenY = y − (x + z)/2
+ * Built with the injected math builders (not + / − / *) so a caller that feeds
+ * differentiable leaves (Scalar params, Array elements) backprops through them.
+ */
+const ISO_COS30 = Math.sqrt(3) / 2;
+export function isometricProject(
+    x: Differentiable, y: Differentiable, z: Differentiable
+): { x: Differentiable; y: Differentiable } {
+    return {
+        x: mul(ISO_COS30, sub(x, z)),
+        y: sub(y, div(add(x, z), 2)),
+    };
+}
+
+/** Degrees → radians, built with the math builders so it stays differentiable. */
+export function degToRad(deg: Differentiable): Differentiable {
+    return div(mul(deg, Math.PI), 180);
+}
+
+/**
+ * Rotate a 3D vector [x, y, z] about the X axis by `angle` radians (CCW looking
+ * down +x toward the origin). Uses the math builders, so the result backprops
+ * through both the vector components and the angle.
+ */
+export function rotateX3D(v: Differentiable[], angle: Differentiable): Differentiable[] {
+    const c = cos(angle), s = sin(angle);
+    const [x, y, z] = v;
+    return [x, sub(mul(c, y), mul(s, z)), add(mul(s, y), mul(c, z))];
+}
+
+/** Rotate a 3D vector [x, y, z] about the Y axis by `angle` radians. See `rotateX3D`. */
+export function rotateY3D(v: Differentiable[], angle: Differentiable): Differentiable[] {
+    const c = cos(angle), s = sin(angle);
+    const [x, y, z] = v;
+    return [add(mul(c, x), mul(s, z)), y, sub(mul(c, z), mul(s, x))];
+}
+
+/** Rotate a 3D vector [x, y, z] about the Z axis by `angle` radians. See `rotateX3D`. */
+export function rotateZ3D(v: Differentiable[], angle: Differentiable): Differentiable[] {
+    const c = cos(angle), s = sin(angle);
+    const [x, y, z] = v;
+    return [sub(mul(c, x), mul(s, y)), add(mul(s, x), mul(c, y)), z];
+}
+
+/**
  * Differentiable matrix product: (m×k) · (k×n) → (m×n), accumulating each entry
  * with the injected `add`/`mul` builders (not + / *) so the result backprops
  * through both operands. Operands may hold plain numbers or SymExprs; the

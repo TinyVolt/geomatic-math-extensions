@@ -1,5 +1,5 @@
 import { ExtensionDef, ScalarNode, PointNode, LineNode, TextBoxNode, GeometricNode, Differentiable } from "./extension-api";
-import { transpose, reshape, matmul, matmulDiff, rainbowGradient, makeRect, hslToHex, softmax } from "./utils/linear-algebra-utils";
+import { transpose, reshape, matmul, matmulDiff, rainbowGradient, makeRect, hslToHex, softmax, isometricProject, degToRad, rotateX3D, rotateY3D, rotateZ3D } from "./utils/linear-algebra-utils";
 import { toNumber } from "./utils/common";
 
 /**
@@ -1152,4 +1152,265 @@ export const MarkovMatrix: ExtensionDef<'Array'> = {
         };
     },
 };
+
+// Shared styling for the isometric (orthographic-projection) helpers below.
+const ISO_AXIS_COLOR = '#888888';   // grey 3D axes
+const ISO_VEC_COLOR  = '#41dbc9';   // cyan 3D vectors / cube edges
+const ISO_AXIS_LEN   = 5;           // half-length of each drawn axis
+const ISO_COS30      = Math.sqrt(3) / 2; // cos 30° — screen slope of the x/z axes
+
+/**
+ * The three isometric (orthographic) 3D axes, drawn through an anchor point.
+ * Inputs: `origin` (optional `Point`, default `p0`) — the 2D screen location of
+ * the 3D origin. Projects the +x/+y/+z unit directions with the true-isometric
+ * mapping (axes 120° apart: +x down-right, +y up, +z down-left) and draws each
+ * as a full grey `Line` running from −`ISO_AXIS_LEN` to +`ISO_AXIS_LEN`.
+ * Output: an `Array` of the three axis `Line`s.
+ */
+export const OrthographicAxes: ExtensionDef<'Array'> = {
+    name: 'OrthographicAxes',
+    keyword: 'la-ortho-axes',
+    parameters: [
+        { argName: 'origin', type: 'Point', defaultValue: 'p0', variadic: false },
+    ],
+    outputType: 'Array',
+
+    compute: ({ origin }) => {
+        // `origin` is a Point parameter; its coordinates are not bound as
+        // symbolic leaves, so read them as plain numbers (there is nothing to
+        // backprop through here — the axes are fixed geometry).
+        const ox = origin && origin.type === 'Point' ? toNumber(origin.x) : 0;
+        const oy = origin && origin.type === 'Point' ? toNumber(origin.y) : 0;
+
+        // Screen directions of the three 3D unit axes under isometric projection.
+        const dirs: Array<[number, number]> = [
+            [ISO_COS30, -0.5],  // +x → down-right
+            [0, 1],             // +y → up
+            [-ISO_COS30, -0.5], // +z → down-left
+        ];
+
+        const result: Record<string, GeometricNode> = {};
+        const lines: LineNode[] = [];
+        dirs.forEach(([dx, dy], i) => {
+            const p1: PointNode = {
+                type: 'Point',
+                x: ox - dx * ISO_AXIS_LEN,
+                y: oy - dy * ISO_AXIS_LEN,
+                hidden: true,
+            };
+            const p2: PointNode = {
+                type: 'Point',
+                x: ox + dx * ISO_AXIS_LEN,
+                y: oy + dy * ISO_AXIS_LEN,
+                hidden: true,
+            };
+            result[`p1_${i}`] = p1;
+            result[`p2_${i}`] = p2;
+            const line: LineNode = { type: 'Line', p1, p2, stroke: ISO_AXIS_COLOR };
+            result[`axis_${i}`] = line;
+            lines.push(line);
+        });
+
+        result.main = {
+            type: 'Array',
+            elementType: 'Line',
+            shape: [lines.length],
+            length: lines.length,
+            elements: lines,
+        };
+        return result;
+    },
+};
+
+/**
+ * A 3D vector drawn as an arrow via isometric (orthographic) projection.
+ * Inputs: `x`, `y`, `z` scalar components. Projects (0,0,0) and (x,y,z) with the
+ * true-isometric mapping and draws an `Arrow` from the projected origin to the
+ * projected tip. Differentiable in x, y and z. Output: an `Arrow` node.
+ */
+export const Vector3D: ExtensionDef<'Arrow'> = {
+    name: 'Vector3D',
+    keyword: 'la-vec3d',
+    parameters: [
+        { argName: 'x', type: 'Scalar', defaultValue: 0, variadic: false },
+        { argName: 'y', type: 'Scalar', defaultValue: 0, variadic: false },
+        { argName: 'z', type: 'Scalar', defaultValue: 0, variadic: false },
+    ],
+    outputType: 'Arrow',
+
+    compute: ({ x, y, z }) => {
+        // x/y/z are Scalar parameters (bound leaves); pass them raw into
+        // `isometricProject` (which builds with the math builders) so the arrow
+        // backprops through the components.
+        const tip = isometricProject(x, y, z);
+
+        const result: Record<string, GeometricNode> = {};
+        const p1: PointNode = { type: 'Point', x: 0, y: 0, hidden: true };
+        const p2: PointNode = { type: 'Point', x: tip.x, y: tip.y, hidden: true };
+        result['p1'] = p1;
+        result['p2'] = p2;
+        result.main = { type: 'Arrow', p1, p2, label: '', stroke: ISO_VEC_COLOR };
+        return result;
+    },
+};
+
+/**
+ * An isometric (orthographic) wireframe cube.
+ * Inputs: `center` (optional `Point`, default `p0` — the 2D screen location of
+ * the cube's center), `length` (edge length, default 2), and `angleX`/`angleY`/
+ * `angleZ` (rotation about each 3D axis in DEGREES, default 0, applied X then Y
+ * then Z). Rotates the eight corners in 3D, projects them isometrically, and
+ * offsets by the center. Emits the 8 corner `Point`s and the 12 edge `Line`s.
+ * Differentiable in `length` and the three angles. Output: an `Array` of the 12
+ * edge `Line`s (the corner points are registered as auxiliaries).
+ */
+export const IsometricCube: ExtensionDef<'Array'> = {
+    name: 'IsometricCube',
+    keyword: 'la-iso-cube',
+    parameters: [
+        { argName: 'center', type: 'Point', defaultValue: 'p0', variadic: false },
+        { argName: 'length', type: 'Scalar', defaultValue: 2, variadic: false },
+        { argName: 'angleX', type: 'Scalar', defaultValue: 0, variadic: false },
+        { argName: 'angleY', type: 'Scalar', defaultValue: 0, variadic: false },
+        { argName: 'angleZ', type: 'Scalar', defaultValue: 0, variadic: false },
+    ],
+    outputType: 'Array',
+
+    compute: ({ center, length, angleX, angleY, angleZ }) => {
+        // `center` is a Point parameter — its coords are not bound leaves, so
+        // read them as plain numbers. `length` and the angles ARE bound Scalar
+        // leaves, so keep them raw and build with the math builders (via the
+        // rotate/project helpers) to stay differentiable in them.
+        const ox = center && center.type === 'Point' ? toNumber(center.x) : 0;
+        const oy = center && center.type === 'Point' ? toNumber(center.y) : 0;
+
+        const ax = degToRad(angleX);
+        const ay = degToRad(angleY);
+        const az = degToRad(angleZ);
+        const half = div(length, 2);
+        const nHalf = neg(half);
+
+        const result: Record<string, GeometricNode> = {};
+
+        // 8 corners, indexed idx = i + 2j + 4k with each bit selecting +half/−half
+        // along that 3D axis. Each corner is rotated (X then Y then Z), projected
+        // isometrically, then offset by the center's screen position.
+        const cornerPoints: PointNode[] = [];
+        for (let idx = 0; idx < 8; idx++) {
+            const cx: Differentiable = (idx & 1) ? half : nHalf;
+            const cy: Differentiable = (idx & 2) ? half : nHalf;
+            const cz: Differentiable = (idx & 4) ? half : nHalf;
+            const rot = rotateZ3D(rotateY3D(rotateX3D([cx, cy, cz], ax), ay), az);
+            const proj = isometricProject(rot[0], rot[1], rot[2]);
+            const p: PointNode = {
+                type: 'Point',
+                x: add(ox, proj.x),
+                y: add(oy, proj.y),
+                fill: ISO_VEC_COLOR,
+            };
+            result[`corner_${idx}`] = p; // top-level auxiliary → gets an id
+            cornerPoints.push(p);
+        }
+
+        // An edge joins two corners differing in exactly one bit (one axis).
+        const lines: LineNode[] = [];
+        for (let a = 0; a < 8; a++) {
+            for (const bit of [1, 2, 4]) {
+                const b = a ^ bit;
+                if (a < b) {
+                    const line: LineNode = {
+                        type: 'Line',
+                        p1: cornerPoints[a],  // same objects by identity
+                        p2: cornerPoints[b],
+                        stroke: ISO_VEC_COLOR,
+                    };
+                    result[`edge_${a}_${b}`] = line;
+                    lines.push(line);
+                }
+            }
+        }
+
+        result.main = {
+            type: 'Array',
+            elementType: 'Line',
+            shape: [lines.length],
+            length: lines.length,
+            elements: lines,
+        };
+        return result;
+    },
+};
+
+/**
+ * Rotate a 3D vector about the X axis, then draw it isometrically as an arrow.
+ * Inputs: `vector` (a length-3 `Array` of scalars) and `angle` (rotation about
+ * the X axis in DEGREES). Rotates the vector in 3D, projects it with the
+ * true-isometric mapping, and draws an `Arrow` from the projected origin to the
+ * projected tip. Differentiable in the vector components and the angle. Throws
+ * if the vector isn't length 3. Output: an `Arrow` node.
+ */
+export const RotateVector3DX: ExtensionDef<'Arrow'> = {
+    name: 'RotateVector3DX',
+    keyword: 'la-rotate-vec3d-x',
+    parameters: [
+        { argName: 'vector', type: 'Array', variadic: false },
+        { argName: 'angle', type: 'Scalar', defaultValue: 0, variadic: false },
+    ],
+    outputType: 'Arrow',
+
+    compute: ({ vector, angle }) => rotatedVector3DArrow(vector, angle, rotateX3D),
+};
+
+/** As `la-rotate-vec3d-x`, but rotating about the Y axis. */
+export const RotateVector3DY: ExtensionDef<'Arrow'> = {
+    name: 'RotateVector3DY',
+    keyword: 'la-rotate-vec3d-y',
+    parameters: [
+        { argName: 'vector', type: 'Array', variadic: false },
+        { argName: 'angle', type: 'Scalar', defaultValue: 0, variadic: false },
+    ],
+    outputType: 'Arrow',
+
+    compute: ({ vector, angle }) => rotatedVector3DArrow(vector, angle, rotateY3D),
+};
+
+/** As `la-rotate-vec3d-x`, but rotating about the Z axis. */
+export const RotateVector3DZ: ExtensionDef<'Arrow'> = {
+    name: 'RotateVector3DZ',
+    keyword: 'la-rotate-vec3d-z',
+    parameters: [
+        { argName: 'vector', type: 'Array', variadic: false },
+        { argName: 'angle', type: 'Scalar', defaultValue: 0, variadic: false },
+    ],
+    outputType: 'Arrow',
+
+    compute: ({ vector, angle }) => rotatedVector3DArrow(vector, angle, rotateZ3D),
+};
+
+/**
+ * Shared body for RotateVector3D{X,Y,Z}: rotate a length-3 vector about one axis
+ * (via the injected `rotate` helper), project it isometrically, and return the
+ * Arrow result. Array elements and `angle` are bound leaves, so they are read
+ * raw and combined with the math builders to stay differentiable.
+ */
+function rotatedVector3DArrow(
+    vector: any,
+    angle: Differentiable,
+    rotate: (v: Differentiable[], angle: Differentiable) => Differentiable[]
+): Record<string, GeometricNode> {
+    const v: Differentiable[] = vector.elements;
+    if (v.length !== 3) {
+        throw new Error(`RotateVector3D: expected a length-3 vector, got ${v.length}`);
+    }
+    const rot = rotate([v[0], v[1], v[2]], degToRad(angle));
+    const tip = isometricProject(rot[0], rot[1], rot[2]);
+
+    const result: Record<string, GeometricNode> = {};
+    const p1: PointNode = { type: 'Point', x: 0, y: 0, hidden: true };
+    const p2: PointNode = { type: 'Point', x: tip.x, y: tip.y, hidden: true };
+    result['p1'] = p1;
+    result['p2'] = p2;
+    result.main = { type: 'Arrow', p1, p2, label: '', stroke: ISO_VEC_COLOR };
+    return result;
+}
 
