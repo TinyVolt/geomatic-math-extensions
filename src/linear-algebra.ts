@@ -1,5 +1,5 @@
 import { ExtensionDef, ScalarNode, PointNode, LineNode, TextBoxNode, GeometricNode, Differentiable } from "./extension-api";
-import { transpose, reshape, matmul, rainbowGradient, makeRect, hslToHex, softmax } from "./utils/linear-algebra-utils";
+import { transpose, reshape, matmul, matmulDiff, rainbowGradient, makeRect, hslToHex, softmax } from "./utils/linear-algebra-utils";
 import { toNumber } from "./utils/common";
 
 /**
@@ -20,11 +20,12 @@ export const Vector2D: ExtensionDef<'Arrow'> = {
     outputType: 'Arrow',
 
     compute: ({ x, y, offsetX, offsetY }) => {
-        const ox = toNumber(offsetX);
-        const oy = toNumber(offsetY);
+        // Build the coordinates with the injected `add` builder (not `+`) and
+        // pass the scalar inputs raw, so the arrow backprops through x/y and
+        // the offsets.
         const result: Record<string, GeometricNode> = {};
-        const p1 = { type: 'Point', x: ox, y: oy, hidden: true } as PointNode;
-        const p2 = { type: 'Point', x: ox + toNumber(x), y: oy + toNumber(y), hidden: true } as PointNode;
+        const p1 = { type: 'Point', x: offsetX, y: offsetY, hidden: true } as PointNode;
+        const p2 = { type: 'Point', x: add(offsetX, x), y: add(offsetY, y), hidden: true } as PointNode;
         result['p1'] = p1;
         result['p2'] = p2;
         result.main = {
@@ -51,7 +52,9 @@ export const Vector: ExtensionDef<'Array'> = {
     outputType: 'Array',
 
     compute: ({ values }) => {
-        const elements = values.map((value: any) => ({ type: 'Scalar', value: toNumber(value) }));
+        // Pass each component raw (not through `toNumber`) so the vector's
+        // scalars keep their leaf tags and backprop.
+        const elements = values.map((value: any) => ({ type: 'Scalar', value }));
         const n = values.length;
 
         return {
@@ -152,13 +155,14 @@ export const MatrixToPoints: ExtensionDef<'Array'> = {
     compute: ({ matrix }) => {
 
         // matrix is 2×n row-major: row 0 = all x's, row 1 = all y's.
-        // Column i becomes the point (xs[i], ys[i]).
+        // Column i becomes the point (xs[i], ys[i]). Elements are read raw so
+        // the points backprop through the matrix entries.
         const n  = matrix.shape[1];
-        const xs = matrix.elements.slice(0, n).map(toNumber);
-        const ys = matrix.elements.slice(n, 2 * n).map(toNumber);
+        const xs = matrix.elements.slice(0, n);
+        const ys = matrix.elements.slice(n, 2 * n);
 
         const result: Record<string, GeometricNode> = {};
-        const points: PointNode[] = xs.map((x: number, i: number) => ({ type: 'Point', x, y: ys[i] }));
+        const points: PointNode[] = xs.map((x: Differentiable, i: number) => ({ type: 'Point', x, y: ys[i] }));
 
         // Register each point as a top-level auxiliary; the array references the
         // SAME objects by identity.
@@ -192,9 +196,11 @@ export const MatMul: ExtensionDef<'Array'> = {
     outputType: 'Array',
 
     compute: ({ a, b }) => {
-
-        const aVals: number[] = a.elements.map(toNumber);
-        const bVals: number[] = b.elements.map(toNumber);
+        // Read elements raw and multiply with `matmulDiff` (which accumulates
+        // via the `add`/`mul` builders), so the product backprops through both
+        // operands.
+        const aVals: Differentiable[] = a.elements;
+        const bVals: Differentiable[] = b.elements;
 
         // Candidate 2D interpretations of an operand. A 2D array has exactly
         // one; a 1D array of length p may be a row (1×p) or a column (p×1),
@@ -227,11 +233,11 @@ export const MatMul: ExtensionDef<'Array'> = {
 
         const A = reshape(aVals, chosen.ad.rows, chosen.ad.cols);
         const B = reshape(bVals, chosen.bd.rows, chosen.bd.cols);
-        const product = matmul(A, B);
+        const product = matmulDiff(A, B);
 
         const rows = product.length;
         const cols = product[0].length;
-        const elements: ScalarNode[] = product.flat().map((value) => ({ type: 'Scalar', value }));
+        const elements: ScalarNode[] = product.flat().map((value: Differentiable) => ({ type: 'Scalar', value }));
 
         return {
             main: {
@@ -265,24 +271,23 @@ export const VisualizeWeightSum: ExtensionDef<'Arrow'> = {
         const INPUT_STROKE  = '#41dbc9';   // scaled column vectors (tip-to-tail)
         const OUTPUT_STROKE = '#f5a623';   // resultant weighted sum
 
-        // Array elements arrive as plain numbers (a Scalar serializes to a
-        // bare number), so read each element directly rather than `.value`.
-
         // matrix is 2×n row-major: row 0 = all x-components, row 1 = all y's.
-        // Column i is the 2D vector (xs[i], ys[i]).
+        // Column i is the 2D vector (xs[i], ys[i]). Elements and weights are
+        // read raw and accumulated with the `add`/`mul` builders (not + / *)
+        // so the chain backprops through the vectors and the weights.
         const n  = matrix.shape[1];
-        const xs = matrix.elements.slice(0, n).map(toNumber);
-        const ys = matrix.elements.slice(n, 2 * n).map(toNumber);
-        const w  = weights.elements.map(toNumber);
+        const xs = matrix.elements.slice(0, n);
+        const ys = matrix.elements.slice(n, 2 * n);
+        const w  = weights.elements;
 
         const result: Record<string, GeometricNode> = {};
 
         // Tip-to-tail chain as REAL (auxiliary) Point nodes. pts[0] = origin.
         const pts: PointNode[] = [{ type: 'Point', x: 0, y: 0, hidden: true }];
-        let cx = 0, cy = 0;
+        let cx: Differentiable = 0, cy: Differentiable = 0;
         for (let i = 0; i < n; i++) {
-            cx += w[i] * xs[i];
-            cy += w[i] * ys[i];
+            cx = add(cx, mul(w[i], xs[i]));
+            cy = add(cy, mul(w[i], ys[i]));
             pts.push({ type: 'Point', x: cx, y: cy, hidden: true });
         }
 
@@ -331,11 +336,13 @@ export const VisualizeGridTransform: ExtensionDef<'Array'> = {
     compute: ({ matrix }) => {
 
         // matrix is 2×2 row-major: [a, b, c, d] = [[a, b], [c, d]].
-        // A point (x, y) maps to (a*x + b*y, c*x + d*y).
-        const a = toNumber(matrix.elements[0]);
-        const b = toNumber(matrix.elements[1]);
-        const c = toNumber(matrix.elements[2]);
-        const d = toNumber(matrix.elements[3]);
+        // A point (x, y) maps to (a*x + b*y, c*x + d*y). Entries are read raw
+        // and the coordinates built with `add`/`mul` builders (not + / *), so
+        // the transformed grid backprops through the matrix.
+        const a = matrix.elements[0];
+        const b = matrix.elements[1];
+        const c = matrix.elements[2];
+        const d = matrix.elements[3];
 
         const R = 5; // grid spans the integer range [-5, 5] before transform.
         const result: Record<string, GeometricNode> = {};
@@ -347,7 +354,7 @@ export const VisualizeGridTransform: ExtensionDef<'Array'> = {
             const key = `${x},${y}`;
             let p = pointCache.get(key);
             if (!p) {
-                p = { type: 'Point', x: a * x + b * y, y: c * x + d * y, hidden: true };
+                p = { type: 'Point', x: add(mul(a, x), mul(b, y)), y: add(mul(c, x), mul(d, y)), hidden: true };
                 pointCache.set(key, p);
                 result[`pt_${x}_${y}`] = p; // top-level auxiliary → gets an id
             }
@@ -398,12 +405,13 @@ export const VisualizeCircleTransform: ExtensionDef<'Array'> = {
 
     compute: ({ matrix, n: nValue }) => {
 
-        // matrix is 2×2 row-major: [a, b, c, d] = [[a, b], [c, d]].
-        // A point (x, y) maps to (a*x + b*y, c*x + d*y).
-        const a = toNumber(matrix.elements[0]);
-        const b = toNumber(matrix.elements[1]);
-        const c = toNumber(matrix.elements[2]);
-        const d = toNumber(matrix.elements[3]);
+        // matrix is 2×2 row-major: [a, b, c, d] = [[a, b], [c, d]]. Entries are
+        // read raw and coordinates built with `add`/`mul` builders (not + / *),
+        // so the fan backprops through the matrix. `n` stays a plain count.
+        const a = matrix.elements[0];
+        const b = matrix.elements[1];
+        const c = matrix.elements[2];
+        const d = matrix.elements[3];
 
         const n = Math.max(1, Math.round(toNumber(nValue)));
         const colors = rainbowGradient(n);
@@ -426,8 +434,8 @@ export const VisualizeCircleTransform: ExtensionDef<'Array'> = {
 
             const pOut: PointNode = {
                 type: 'Point',
-                x: a * x + b * y,
-                y: c * x + d * y,
+                x: add(mul(a, x), mul(b, y)),
+                y: add(mul(c, x), mul(d, y)),
                 fill: color,
             };
             result[`pt_${i}`] = pOut; // top-level auxiliary → gets an id
@@ -468,12 +476,13 @@ export const VisualizeCircleTransform2: ExtensionDef<'Array'> = {
 
     compute: ({ matrix, n: nValue }) => {
 
-        // matrix is 2×2 row-major: [a, b, c, d] = [[a, b], [c, d]].
-        // A point (x, y) maps to (a*x + b*y, c*x + d*y).
-        const a = toNumber(matrix.elements[0]);
-        const b = toNumber(matrix.elements[1]);
-        const c = toNumber(matrix.elements[2]);
-        const d = toNumber(matrix.elements[3]);
+        // matrix is 2×2 row-major: [a, b, c, d] = [[a, b], [c, d]]. Entries are
+        // read raw and coordinates built with `add`/`mul` builders (not + / *),
+        // so the output points backprop through the matrix. `n` stays a count.
+        const a = matrix.elements[0];
+        const b = matrix.elements[1];
+        const c = matrix.elements[2];
+        const d = matrix.elements[3];
 
         const n = Math.max(1, Math.round(toNumber(nValue)));
         const colors = rainbowGradient(n);
@@ -495,8 +504,8 @@ export const VisualizeCircleTransform2: ExtensionDef<'Array'> = {
 
             const pOut: PointNode = {
                 type: 'Point',
-                x: a * x + b * y,
-                y: c * x + d * y,
+                x: add(mul(a, x), mul(b, y)),
+                y: add(mul(c, x), mul(d, y)),
                 fill: color,
             };
             result[`out_${i}`] = pOut; // top-level auxiliary → gets an id
@@ -639,6 +648,123 @@ export const GetRadianOf2DVector: ExtensionDef<'Scalar'> = {
 };
 
 /**
+ * Scale a vector by a scalar: each component cᵢ becomes scale · cᵢ.
+ * Inputs: `vector` (an `Array` of scalars) and `scale` (a scalar). Output:
+ * a length-n `Array` of scalars.
+ */
+export const ScaleVector: ExtensionDef<'Array'> = {
+    name: 'ScaleVector',
+    keyword: 'la-scale-vector',
+    parameters: [
+        { argName: 'vector', type: 'Array', variadic: false },
+        { argName: 'scale', type: 'Scalar', variadic: false },
+    ],
+    outputType: 'Array',
+
+    compute: ({ vector, scale }) => {
+        if (vector.elementType !== 'Scalar') {
+            throw new Error(
+                `ScaleVector: expected a vector of scalars, got '${vector.elementType}'`
+            );
+        }
+
+        const scaledElements = vector.elements.map((element: any) => ({
+            type: 'Scalar',
+            value: mul(scale, element.value),
+        }));
+
+        return {
+            main: {
+                type: 'Array',
+                elementType: 'Scalar',
+                shape: vector.shape,
+                length: vector.length,
+                elements: scaledElements,
+            },
+        };
+    },
+};
+
+/**
+ * Normalize a vector to its unit vector, returning the zero vector when the
+ * input magnitude is zero. Inputs: `vector` (an `Array` of scalars). Output: a
+ * length-n `Array` of scalars.
+ */
+export const UnitVector: ExtensionDef<'Array'> = {
+    name: 'UnitVector',
+    keyword: 'la-unit-vector',
+    parameters: [
+        { argName: 'vector', type: 'Array', variadic: false },
+    ],
+    outputType: 'Array',
+
+    compute: ({ vector }) => {
+        if (vector.elementType !== 'Scalar') {
+            throw new Error(
+                `UnitVector: expected a vector of scalars, got '${vector.elementType}'`
+            );
+        }
+
+        const values = vector.elements.map((element: any) => element.value);
+        let normSq: Differentiable = 0;
+        for (const value of values) {
+            normSq = add(normSq, mul(value, value));
+        }
+        const scale: Differentiable = where(eq(normSq, 0), 0, div(1, sqrt(normSq)));
+
+        const normalizedElements = values.map((value: any) => ({
+            type: 'Scalar',
+            value: mul(scale, value),
+        }));
+
+        return {
+            main: {
+                type: 'Array',
+                elementType: 'Scalar',
+                shape: vector.shape,
+                length: vector.length,
+                elements: normalizedElements,
+            },
+        };
+    },
+};
+
+/**
+ * Rotation matrix for a given angle in degrees. Inputs: `angle` (a scalar, in
+ * degrees). Output: a 2×2 `Array` of scalars in row-major order:
+ * [[cos θ, -sin θ], [sin θ, cos θ]].
+ */
+export const RotationMatrix: ExtensionDef<'Array'> = {
+    name: 'RotationMatrix',
+    keyword: 'la-rotation-matrix',
+    parameters: [
+        { argName: 'angle', type: 'Scalar', variadic: false },
+    ],
+    outputType: 'Array',
+
+    compute: ({ angle }) => {
+        const theta = div(mul(angle, Math.PI), 180);
+        const c = cos(theta);
+        const s = sin(theta);
+
+        return {
+            main: {
+                type: 'Array',
+                elementType: 'Scalar',
+                shape: [2, 2],
+                length: 4,
+                elements: [
+                    { type: 'Scalar', value: c },
+                    { type: 'Scalar', value: -s },
+                    { type: 'Scalar', value: s },
+                    { type: 'Scalar', value: c },
+                ],
+            },
+        };
+    },
+};
+
+/**
  * Dot product of two equal-length vectors: Σ aᵢ·bᵢ.
  * Inputs: `a`, `b` (length-n `Array`s of scalars). Throws if the lengths
  * differ. Output: a `Scalar`.
@@ -693,8 +819,10 @@ export const ProjectV1OnV2: ExtensionDef<'Arrow'> = {
     outputType: 'Arrow',
 
     compute: ({ v1, v2 }) => {
-        const a: number[] = v1.elements.map(toNumber);
-        const b: number[] = v2.elements.map(toNumber);
+        // Read the components raw and build with the injected math builders
+        // (not + / * / /), so the projection backprops through v1 and v2.
+        const a: Differentiable[] = v1.elements;
+        const b: Differentiable[] = v2.elements;
         // The result is drawn as a 2D arrow, so both inputs must be 2D.
         if (a.length !== 2 || b.length !== 2) {
             throw new Error(
@@ -702,16 +830,18 @@ export const ProjectV1OnV2: ExtensionDef<'Arrow'> = {
             );
         }
 
-        // scale = (v1·v2) / (v2·v2); zero v2 → undefined direction, project to 0.
-        const dot = a[0] * b[0] + a[1] * b[1];
-        const bb = b[0] * b[0] + b[1] * b[1];
-        const scale = bb === 0 ? 0 : dot / bb;
+        // scale = (v1·v2) / (v2·v2); zero v2 → undefined direction, project to
+        // 0. `where(eq(bb, 0), ...)` keeps the branch differentiable and avoids
+        // a divide-by-zero when v2 is the zero vector.
+        const dot = add(mul(a[0], b[0]), mul(a[1], b[1]));
+        const bb  = add(mul(b[0], b[0]), mul(b[1], b[1]));
+        const scale = where(eq(bb, 0), 0, div(dot, bb));
 
         return {
             main: {
                 type: 'Arrow',
                 p1: { type: 'Point', x: 0, y: 0 },
-                p2: { type: 'Point', x: scale * b[0], y: scale * b[1] },
+                p2: { type: 'Point', x: mul(scale, b[0]), y: mul(scale, b[1]) },
                 label: '',
                 stroke: '#41dbc9',
             },
@@ -860,34 +990,38 @@ export const MatrixToEllipse: ExtensionDef<'Ellipse'> = {
     outputType: 'Ellipse',
 
     compute: ({ matrix, center }) => {
-        // matrix is 2×2 row-major: [a, b, c, d] = [[a, b], [c, d]].
-        const a = toNumber(matrix.elements[0]);
-        const b = toNumber(matrix.elements[1]);
-        const c = toNumber(matrix.elements[2]);
-        const d = toNumber(matrix.elements[3]);
+        // matrix is 2×2 row-major: [a, b, c, d] = [[a, b], [c, d]]. Entries are
+        // read raw and the geometry built with the math builders (`sqrt`,
+        // `maximum`, `atan2`, …) rather than `Math.*` / operators, so the
+        // ellipse backprops through the matrix.
+        const a = matrix.elements[0];
+        const b = matrix.elements[1];
+        const c = matrix.elements[2];
+        const d = matrix.elements[3];
 
         // The unit circle maps to { A·u : |u| = 1 }, an ellipse whose semi-axes
         // are the singular values of A and whose axes point along the
         // eigenvectors of M = A·Aᵀ (symmetric 2×2, so closed-form eigen-pairs).
-        const m00 = a * a + b * b;
-        const m01 = a * c + b * d;
-        const m11 = c * c + d * d;
+        const m00 = add(mul(a, a), mul(b, b));
+        const m01 = add(mul(a, c), mul(b, d));
+        const m11 = add(mul(c, c), mul(d, d));
 
         // Eigenvalues of M: (trace ± disc) / 2; singular values are their roots.
         // Clamp at 0 so float noise on a singular matrix can't produce NaN.
-        const diff = m00 - m11;
-        const disc = Math.sqrt(diff * diff + 4 * m01 * m01);
-        const radiusX = Math.sqrt(Math.max(0, (m00 + m11 + disc) / 2));
-        const radiusY = Math.sqrt(Math.max(0, (m00 + m11 - disc) / 2));
+        const diff = sub(m00, m11);
+        const disc = sqrt(add(mul(diff, diff), mul(4, mul(m01, m01))));
+        const trace = add(m00, m11);
+        const radiusX = sqrt(maximum(0, div(add(trace, disc), 2)));
+        const radiusY = sqrt(maximum(0, div(sub(trace, disc), 2)));
 
         // Major-axis direction = top eigenvector of M. When M is a multiple of
         // the identity (the image is a circle) atan2(0, 0) = 0, a fine choice.
         // The renderer reads Ellipse.rotation in DEGREES, not radians.
-        const rotation = (0.5 * Math.atan2(2 * m01, diff)) * (180 / Math.PI);
+        const rotation = mul(mul(0.5, atan2(mul(2, m01), diff)), 180 / Math.PI);
 
         const centerPoint: PointNode =
             center && center.type === 'Point'
-                ? { type: 'Point', x: toNumber(center.x), y: toNumber(center.y), hidden: true }
+                ? { type: 'Point', x: center.x, y: center.y, hidden: true }
                 : { type: 'Point', x: 0, y: 0, hidden: true };
 
         const result: Record<string, GeometricNode> = {};

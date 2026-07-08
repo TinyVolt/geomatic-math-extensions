@@ -1,4 +1,4 @@
-import { PointNode, PolygonNode } from "../extension-api";
+import { PointNode, PolygonNode, Differentiable } from "../extension-api";
 
 /**
  * Transpose a row-major 2D array: an r×c matrix becomes c×r.
@@ -102,6 +102,10 @@ export function rainbowGradient(n: number, saturation = 100, lightness = 55): st
 /**
  * Multiply two row-major numeric matrices: (m×k) · (k×n) → (m×n).
  * Throws if the inner dimensions do not match.
+ *
+ * This is the plain-number variant, used by non-differentiable consumers
+ * (e.g. the Markov simulation, whose product feeds colours and layout that
+ * require real numbers). For a differentiable product use `matmulDiff`.
  */
 export function matmul(a: number[][], b: number[][]): number[][] {
     const m = a.length;
@@ -118,6 +122,34 @@ export function matmul(a: number[][], b: number[][]): number[][] {
             const ait = a[i][t];
             for (let j = 0; j < n; j++) {
                 row[j] += ait * b[t][j];
+            }
+        }
+        result.push(row);
+    }
+    return result;
+}
+
+/**
+ * Differentiable matrix product: (m×k) · (k×n) → (m×n), accumulating each entry
+ * with the injected `add`/`mul` builders (not + / *) so the result backprops
+ * through both operands. Operands may hold plain numbers or SymExprs; the
+ * builders auto-lift. Throws if the inner dimensions do not match.
+ */
+export function matmulDiff(a: Differentiable[][], b: Differentiable[][]): Differentiable[][] {
+    const m = a.length;
+    const k = a[0].length;
+    const bRows = b.length;
+    const n = b[0].length;
+    if (k !== bRows) {
+        throw new Error(`matmulDiff: inner dimensions do not match (${m}×${k} · ${bRows}×${n})`);
+    }
+    const result: Differentiable[][] = [];
+    for (let i = 0; i < m; i++) {
+        const row: Differentiable[] = new Array(n).fill(0);
+        for (let t = 0; t < k; t++) {
+            const ait = a[i][t];
+            for (let j = 0; j < n; j++) {
+                row[j] = add(row[j], mul(ait, b[t][j]));
             }
         }
         result.push(row);
