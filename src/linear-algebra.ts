@@ -648,40 +648,90 @@ export const GetRadianOf2DVector: ExtensionDef<'Scalar'> = {
 };
 
 /**
- * Scale a vector by a scalar: each component cᵢ becomes scale · cᵢ.
- * Inputs: `vector` (an `Array` of scalars) and `scale` (a scalar). Output:
- * a length-n `Array` of scalars.
+ * Scale a 2D vector arrow by a scalar. The tail (p1) stays fixed while the
+ * head is pushed out so the displacement (p2 − p1) becomes scale · (p2 − p1).
+ * Inputs: `arrow` (an `Arrow` node) and `scale` (a scalar). Output: a scaled
+ * `Arrow` node.
  */
-export const ScaleVector: ExtensionDef<'Array'> = {
-    name: 'ScaleVector',
-    keyword: 'la-scale-vector',
+export const ScaleVector2D: ExtensionDef<'Arrow'> = {
+    name: 'ScaleVector2D',
+    keyword: 'la-scale-vec2d',
     parameters: [
-        { argName: 'vector', type: 'Array', variadic: false },
+        { argName: 'arrow', type: 'Arrow', variadic: false },
         { argName: 'scale', type: 'Scalar', variadic: false },
     ],
-    outputType: 'Array',
+    outputType: 'Arrow',
 
-    compute: ({ vector, scale }) => {
-        if (vector.elementType !== 'Scalar') {
-            throw new Error(
-                `ScaleVector: expected a vector of scalars, got '${vector.elementType}'`
-            );
-        }
-
-        const scaledElements = vector.elements.map((element: any) => ({
-            type: 'Scalar',
-            value: mul(scale, element.value),
-        }));
-
-        return {
-            main: {
-                type: 'Array',
-                elementType: 'Scalar',
-                shape: vector.shape,
-                length: vector.length,
-                elements: scaledElements,
-            },
+    compute: ({ arrow, scale }) => {
+        // Scale the displacement (p2 − p1) with the injected `mul`/`add`/`sub`
+        // builders so the result backprops through the arrow and the scale.
+        const result: Record<string, GeometricNode> = {};
+        const { p1, p2 } = arrow;
+        const dx = sub(p2.x, p1.x);
+        const dy = sub(p2.y, p1.y);
+        const tail = { type: 'Point', x: p1.x, y: p1.y, hidden: true } as PointNode;
+        const head = {
+            type: 'Point',
+            x: add(p1.x, mul(scale, dx)),
+            y: add(p1.y, mul(scale, dy)),
+            hidden: true,
+        } as PointNode;
+        result['p1'] = tail;
+        result['p2'] = head;
+        result.main = {
+            type: 'Arrow',
+            p1: tail,
+            p2: head,
+            label: '',
+            stroke: '#41dbc9',
         };
+        return result;
+    },
+};
+
+/**
+ * Normalize a 2D vector arrow to unit length. The tail (p1) stays fixed while
+ * the head is pulled in/out so the displacement (p2 − p1) becomes a unit
+ * vector in the same direction. A zero-length arrow (p1 == p2) is left
+ * unchanged (the direction is undefined). Inputs: `arrow` (an `Arrow` node).
+ * Output: a unit-length `Arrow` node.
+ */
+export const UnitVector2D: ExtensionDef<'Arrow'> = {
+    name: 'UnitVector2D',
+    keyword: 'la-unit-vec2d',
+    parameters: [
+        { argName: 'arrow', type: 'Arrow', variadic: false },
+    ],
+    outputType: 'Arrow',
+
+    compute: ({ arrow }) => {
+        // Build with the injected `sub`/`add`/`mul`/`div`/`sqrt` builders (not
+        // operators) and read the point coords raw, so the result backprops
+        // through the arrow. `where(eq(normSq, 0), ...)` guards the zero-length
+        // arrow: keep the head on the tail rather than dividing by zero.
+        const result: Record<string, GeometricNode> = {};
+        const { p1, p2 } = arrow;
+        const dx = sub(p2.x, p1.x);
+        const dy = sub(p2.y, p1.y);
+        const normSq = add(mul(dx, dx), mul(dy, dy));
+        const invLen = where(eq(normSq, 0), 0, div(1, sqrt(normSq)));
+        const tail = { type: 'Point', x: p1.x, y: p1.y, hidden: true } as PointNode;
+        const head = {
+            type: 'Point',
+            x: add(p1.x, mul(dx, invLen)),
+            y: add(p1.y, mul(dy, invLen)),
+            hidden: true,
+        } as PointNode;
+        result['p1'] = tail;
+        result['p2'] = head;
+        result.main = {
+            type: 'Arrow',
+            p1: tail,
+            p2: head,
+            label: '',
+            stroke: '#41dbc9',
+        };
+        return result;
     },
 };
 
@@ -705,14 +755,18 @@ export const UnitVector: ExtensionDef<'Array'> = {
             );
         }
 
-        const values = vector.elements.map((element: any) => element.value);
+        // Elements arrive as bare values (a Scalar serializes to a bare
+        // number), so read each directly rather than `.value` — reading
+        // `.value` yields undefined, which collapses the norm to 0 and makes
+        // every output 0.
+        const values: Differentiable[] = vector.elements;
         let normSq: Differentiable = 0;
         for (const value of values) {
             normSq = add(normSq, mul(value, value));
         }
         const scale: Differentiable = where(eq(normSq, 0), 0, div(1, sqrt(normSq)));
 
-        const normalizedElements = values.map((value: any) => ({
+        const normalizedElements: ScalarNode[] = values.map((value: Differentiable) => ({
             type: 'Scalar',
             value: mul(scale, value),
         }));
@@ -755,7 +809,7 @@ export const RotationMatrix: ExtensionDef<'Array'> = {
                 length: 4,
                 elements: [
                     { type: 'Scalar', value: c },
-                    { type: 'Scalar', value: -s },
+                    { type: 'Scalar', value: neg(s) },
                     { type: 'Scalar', value: s },
                     { type: 'Scalar', value: c },
                 ],
