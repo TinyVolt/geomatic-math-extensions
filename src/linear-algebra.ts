@@ -1155,7 +1155,10 @@ export const MarkovMatrix: ExtensionDef<'Array'> = {
 
 // Shared styling for the isometric (orthographic-projection) helpers below.
 const ISO_AXIS_COLOR = '#888888';   // grey 3D axes
-const ISO_VEC_COLOR  = '#41dbc9';   // cyan 3D vectors / cube edges
+const ISO_VEC_COLOR  = '#41dbc9';   // cyan 3D vectors
+const ISO_FACE_COLOR     = '#41dbc9'; // near z-face edges (cyan)
+const ISO_FAR_FACE_COLOR = '#f5a623'; // parallel far z-face edges (orange)
+const ISO_CONNECT_COLOR  = '#a06cf6'; // connectors between the two faces (violet)
 const ISO_AXIS_LEN   = 5;           // half-length of each drawn axis
 const ISO_COS30      = Math.sqrt(3) / 2; // cos 30° — screen slope of the x/z axes
 
@@ -1192,12 +1195,9 @@ export const OrthographicAxes: ExtensionDef<'Array'> = {
         const result: Record<string, GeometricNode> = {};
         const lines: LineNode[] = [];
         dirs.forEach(([dx, dy], i) => {
-            const p1: PointNode = {
-                type: 'Point',
-                x: ox - dx * ISO_AXIS_LEN,
-                y: oy - dy * ISO_AXIS_LEN,
-                hidden: true,
-            };
+            // Draw only the positive half-axis: from the origin outward along
+            // +x/+y/+z (the negative rays are distracting).
+            const p1: PointNode = { type: 'Point', x: ox, y: oy, hidden: true };
             const p2: PointNode = {
                 type: 'Point',
                 x: ox + dx * ISO_AXIS_LEN,
@@ -1313,16 +1313,23 @@ export const IsometricCube: ExtensionDef<'Array'> = {
         }
 
         // An edge joins two corners differing in exactly one bit (one axis).
+        // Colour the 12 edges by their group so the cube's orientation reads
+        // clearly: the four edges of the near z-face (bit 4 set), the four of the
+        // parallel far z-face (bit 4 clear), and the four connectors between the
+        // faces (the bit-4 edges themselves).
         const lines: LineNode[] = [];
         for (let a = 0; a < 8; a++) {
             for (const bit of [1, 2, 4]) {
                 const b = a ^ bit;
                 if (a < b) {
+                    const stroke = bit === 4
+                        ? ISO_CONNECT_COLOR                       // connectors ⟂ the two faces
+                        : (a & 4) ? ISO_FACE_COLOR : ISO_FAR_FACE_COLOR; // near vs. far face
                     const line: LineNode = {
                         type: 'Line',
                         p1: cornerPoints[a],  // same objects by identity
                         p2: cornerPoints[b],
-                        stroke: ISO_VEC_COLOR,
+                        stroke,
                     };
                     result[`edge_${a}_${b}`] = line;
                     lines.push(line);
