@@ -663,17 +663,22 @@ export const ScaleVector2D: ExtensionDef<'Arrow'> = {
     outputType: 'Arrow',
 
     compute: ({ arrow, scale }) => {
-        // Scale the displacement (p2 − p1) with the injected `mul`/`add`/`sub`
-        // builders so the result backprops through the arrow and the scale.
+        // The arrow's coordinates come from a structured geometry input; the
+        // host does NOT bind symbolic leaves for those nested fields, so read
+        // them as plain numbers (via `toNumber`) — feeding them raw into a
+        // builder would emit an unbindable leaf like `arrow.p1.x`. `scale` is a
+        // Scalar parameter (a bound leaf), so keep it raw and build the head
+        // with `add`/`mul` to stay differentiable in the scale factor.
         const result: Record<string, GeometricNode> = {};
         const { p1, p2 } = arrow;
-        const dx = sub(p2.x, p1.x);
-        const dy = sub(p2.y, p1.y);
-        const tail = { type: 'Point', x: p1.x, y: p1.y, hidden: true } as PointNode;
+        const p1x = toNumber(p1.x), p1y = toNumber(p1.y);
+        const dx = toNumber(p2.x) - p1x;
+        const dy = toNumber(p2.y) - p1y;
+        const tail = { type: 'Point', x: p1x, y: p1y, hidden: true } as PointNode;
         const head = {
             type: 'Point',
-            x: add(p1.x, mul(scale, dx)),
-            y: add(p1.y, mul(scale, dy)),
+            x: add(p1x, mul(scale, dx)),
+            y: add(p1y, mul(scale, dy)),
             hidden: true,
         } as PointNode;
         result['p1'] = tail;
@@ -705,21 +710,23 @@ export const UnitVector2D: ExtensionDef<'Arrow'> = {
     outputType: 'Arrow',
 
     compute: ({ arrow }) => {
-        // Build with the injected `sub`/`add`/`mul`/`div`/`sqrt` builders (not
-        // operators) and read the point coords raw, so the result backprops
-        // through the arrow. `where(eq(normSq, 0), ...)` guards the zero-length
-        // arrow: keep the head on the tail rather than dividing by zero.
+        // The only input is an Arrow, whose nested coordinates the host does
+        // not bind as differentiable leaves — so there is nothing to backprop
+        // through here. Read the coords as plain numbers and compute directly;
+        // a zero-length arrow (p1 == p2) is left unchanged (undefined
+        // direction) rather than dividing by zero.
         const result: Record<string, GeometricNode> = {};
         const { p1, p2 } = arrow;
-        const dx = sub(p2.x, p1.x);
-        const dy = sub(p2.y, p1.y);
-        const normSq = add(mul(dx, dx), mul(dy, dy));
-        const invLen = where(eq(normSq, 0), 0, div(1, sqrt(normSq)));
-        const tail = { type: 'Point', x: p1.x, y: p1.y, hidden: true } as PointNode;
+        const p1x = toNumber(p1.x), p1y = toNumber(p1.y);
+        const dx = toNumber(p2.x) - p1x;
+        const dy = toNumber(p2.y) - p1y;
+        const len = Math.hypot(dx, dy);
+        const invLen = len === 0 ? 0 : 1 / len;
+        const tail = { type: 'Point', x: p1x, y: p1y, hidden: true } as PointNode;
         const head = {
             type: 'Point',
-            x: add(p1.x, mul(dx, invLen)),
-            y: add(p1.y, mul(dy, invLen)),
+            x: p1x + dx * invLen,
+            y: p1y + dy * invLen,
             hidden: true,
         } as PointNode;
         result['p1'] = tail;
@@ -1073,9 +1080,12 @@ export const MatrixToEllipse: ExtensionDef<'Ellipse'> = {
         // The renderer reads Ellipse.rotation in DEGREES, not radians.
         const rotation = mul(mul(0.5, atan2(mul(2, m01), diff)), 180 / Math.PI);
 
+        // `center` is a Point parameter; its nested coords are not bound as
+        // symbolic leaves, so read them as plain numbers (feeding them raw
+        // would emit an unbindable `center.x` leaf).
         const centerPoint: PointNode =
             center && center.type === 'Point'
-                ? { type: 'Point', x: center.x, y: center.y, hidden: true }
+                ? { type: 'Point', x: toNumber(center.x), y: toNumber(center.y), hidden: true }
                 : { type: 'Point', x: 0, y: 0, hidden: true };
 
         const result: Record<string, GeometricNode> = {};
