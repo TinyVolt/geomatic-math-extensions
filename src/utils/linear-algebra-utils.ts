@@ -130,21 +130,23 @@ export function matmul(a: number[][], b: number[][]): number[][] {
 }
 
 /**
- * "True isometric" projection of a 3D point onto the 2D canvas. The three axes
- * appear 120° apart on screen: +x runs down-right, +y straight up, +z
- * down-left. Concretely
- *   screenX = (√3/2)·(x − z)
- *   screenY = y − (x + z)/2
- * Built with the injected math builders (not + / − / *) so a caller that feeds
- * differentiable leaves (Scalar params, Array elements) backprops through them.
+ * "True isometric" projection of a 3D point onto the 2D canvas. The 3D +z axis
+ * is aligned with the 2D −y axis (it points straight down); +x runs up-right and
+ * +y up-left, so the three axes sit 120° apart. Concretely
+ *   screenX = (√3/2)·(x − y)
+ *   screenY = (x + y)/2 − z
+ * This is the single source of the projection orientation; every isometric
+ * helper in the extension must match it. Built with the injected math builders
+ * (not + / − / *) so a caller that feeds differentiable leaves (Scalar params,
+ * Array elements) backprops through them.
  */
-const ISO_COS30 = Math.sqrt(3) / 2;
+export const ISO_COS30 = Math.sqrt(3) / 2;
 export function isometricProject(
     x: Differentiable, y: Differentiable, z: Differentiable
 ): { x: Differentiable; y: Differentiable } {
     return {
-        x: mul(ISO_COS30, sub(x, z)),
-        y: sub(y, div(add(x, z), 2)),
+        x: mul(ISO_COS30, sub(x, y)),
+        y: sub(div(add(x, y), 2), z),
     };
 }
 

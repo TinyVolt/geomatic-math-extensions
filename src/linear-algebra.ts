@@ -1,5 +1,5 @@
 import { ExtensionDef, ScalarNode, PointNode, LineNode, TextBoxNode, GeometricNode, Differentiable } from "./extension-api";
-import { transpose, reshape, matmul, matmulDiff, rainbowGradient, makeRect, hslToHex, softmax, isometricProject, degToRad, rotateX3D, rotateY3D, rotateZ3D } from "./utils/linear-algebra-utils";
+import { transpose, reshape, matmul, matmulDiff, rainbowGradient, makeRect, hslToHex, softmax, isometricProject, ISO_COS30, degToRad, rotateX3D, rotateY3D, rotateZ3D } from "./utils/linear-algebra-utils";
 import { toNumber } from "./utils/common";
 
 /**
@@ -791,20 +791,20 @@ export const UnitVector: ExtensionDef<'Array'> = {
 };
 
 /**
- * Rotation matrix for a given angle in degrees. Inputs: `angle` (a scalar, in
- * degrees). Output: a 2×2 `Array` of scalars in row-major order:
+ * Rotation matrix for a given angle in degrees. Inputs: `degrees` (a scalar).
+ * Output: a 2×2 `Array` of scalars in row-major order:
  * [[cos θ, -sin θ], [sin θ, cos θ]].
  */
 export const RotationMatrix: ExtensionDef<'Array'> = {
     name: 'RotationMatrix',
     keyword: 'la-rotation-matrix',
     parameters: [
-        { argName: 'angle', type: 'Scalar', variadic: false },
+        { argName: 'degrees', type: 'Scalar', variadic: false },
     ],
     outputType: 'Array',
 
-    compute: ({ angle }) => {
-        const theta = div(mul(angle, Math.PI), 180);
+    compute: ({ degrees }) => {
+        const theta = div(mul(degrees, Math.PI), 180);
         const c = cos(theta);
         const s = sin(theta);
 
@@ -842,9 +842,9 @@ function matrix3x3(values: Differentiable[]): Record<string, GeometricNode> {
 }
 
 /**
- * 3×3 rotation matrix about the X axis for an angle in degrees. Input: `angle`
- * (a scalar, in degrees). Differentiable in `angle`. Output: a 3×3 `Array` of
- * scalars in row-major order:
+ * 3×3 rotation matrix about the X axis for an angle in degrees. Input: `degrees`
+ * (a scalar). Differentiable in `degrees`. Output: a 3×3 `Array` of scalars in
+ * row-major order:
  *   [[1, 0, 0], [0, cos θ, -sin θ], [0, sin θ, cos θ]].
  * The 3D analogue of `la-rotation-matrix`.
  */
@@ -852,12 +852,12 @@ export const RotationMatrix3DX: ExtensionDef<'Array'> = {
     name: 'RotationMatrix3DX',
     keyword: 'la-rotation-matrix3d-x',
     parameters: [
-        { argName: 'angle', type: 'Scalar', variadic: false },
+        { argName: 'degrees', type: 'Scalar', variadic: false },
     ],
     outputType: 'Array',
 
-    compute: ({ angle }) => {
-        const theta = degToRad(angle);
+    compute: ({ degrees }) => {
+        const theta = degToRad(degrees);
         const c = cos(theta);
         const s = sin(theta);
         return matrix3x3([
@@ -876,12 +876,12 @@ export const RotationMatrix3DY: ExtensionDef<'Array'> = {
     name: 'RotationMatrix3DY',
     keyword: 'la-rotation-matrix3d-y',
     parameters: [
-        { argName: 'angle', type: 'Scalar', variadic: false },
+        { argName: 'degrees', type: 'Scalar', variadic: false },
     ],
     outputType: 'Array',
 
-    compute: ({ angle }) => {
-        const theta = degToRad(angle);
+    compute: ({ degrees }) => {
+        const theta = degToRad(degrees);
         const c = cos(theta);
         const s = sin(theta);
         return matrix3x3([
@@ -900,12 +900,12 @@ export const RotationMatrix3DZ: ExtensionDef<'Array'> = {
     name: 'RotationMatrix3DZ',
     keyword: 'la-rotation-matrix3d-z',
     parameters: [
-        { argName: 'angle', type: 'Scalar', variadic: false },
+        { argName: 'degrees', type: 'Scalar', variadic: false },
     ],
     outputType: 'Array',
 
-    compute: ({ angle }) => {
-        const theta = degToRad(angle);
+    compute: ({ degrees }) => {
+        const theta = degToRad(degrees);
         const c = cos(theta);
         const s = sin(theta);
         return matrix3x3([
@@ -1250,8 +1250,7 @@ const ISO_VEC_COLOR  = '#41dbc9';   // cyan 3D vectors
 const ISO_FACE_COLOR     = '#41dbc9'; // near z-face edges (cyan)
 const ISO_FAR_FACE_COLOR = '#f5a623'; // parallel far z-face edges (orange)
 const ISO_CONNECT_COLOR  = '#a06cf6'; // connectors between the two faces (violet)
-const ISO_AXIS_LEN   = 5;           // half-length of each drawn axis
-const ISO_COS30      = Math.sqrt(3) / 2; // cos 30° — screen slope of the x/z axes
+const ISO_AXIS_LEN   = 5;           // length of each drawn axis
 
 /**
  * The three isometric (orthographic) 3D axes, drawn through an anchor point.
@@ -1278,11 +1277,12 @@ export const OrthographicAxes: ExtensionDef<'Array'> = {
         const oy = origin && origin.type === 'Point' ? toNumber(origin.y) : 0;
         const len = toNumber(length);
 
-        // Screen directions of the three 3D unit axes under isometric projection.
+        // Screen directions of the three 3D unit axes under isometric projection
+        // (must match `isometricProject`: +z aligns with 2D −y).
         const dirs: Array<[number, number]> = [
-            [ISO_COS30, -0.5],  // +x → down-right
-            [0, 1],             // +y → up
-            [-ISO_COS30, -0.5], // +z → down-left
+            [ISO_COS30, 0.5],   // +x → up-right
+            [-ISO_COS30, 0.5],  // +y → up-left
+            [0, -1],            // +z → straight down (2D −y)
         ];
 
         const result: Record<string, GeometricNode> = {};
@@ -1350,9 +1350,9 @@ export const Vector3D: ExtensionDef<'Arrow'> = {
 /**
  * An isometric (orthographic) wireframe cube.
  * Inputs: `center` (optional `Point`, default `p0` — the 2D screen location of
- * the cube's center), `length` (edge length, default 2), and `angleX`/`angleY`/
- * `angleZ` (rotation about each 3D axis in DEGREES, default 0, applied X then Y
- * then Z). Rotates the eight corners in 3D, projects them isometrically, and
+ * the cube's center), `length` (edge length, default 2), and `degreesX`/
+ * `degreesY`/`degreesZ` (rotation about each 3D axis in degrees, default 0,
+ * applied X then Y then Z). Rotates the eight corners in 3D, projects them isometrically, and
  * offsets by the center. Emits the 8 corner `Point`s and the 12 edge `Line`s.
  * Differentiable in `length` and the three angles. Output: an `Array` of the 12
  * edge `Line`s (the corner points are registered as auxiliaries).
@@ -1363,13 +1363,13 @@ export const IsometricCube: ExtensionDef<'Array'> = {
     parameters: [
         { argName: 'center', type: 'Point', defaultValue: 'p0', variadic: false },
         { argName: 'length', type: 'Scalar', defaultValue: 2, variadic: false },
-        { argName: 'angleX', type: 'Scalar', defaultValue: 0, variadic: false },
-        { argName: 'angleY', type: 'Scalar', defaultValue: 0, variadic: false },
-        { argName: 'angleZ', type: 'Scalar', defaultValue: 0, variadic: false },
+        { argName: 'degreesX', type: 'Scalar', defaultValue: 0, variadic: false },
+        { argName: 'degreesY', type: 'Scalar', defaultValue: 0, variadic: false },
+        { argName: 'degreesZ', type: 'Scalar', defaultValue: 0, variadic: false },
     ],
     outputType: 'Array',
 
-    compute: ({ center, length, angleX, angleY, angleZ }) => {
+    compute: ({ center, length, degreesX, degreesY, degreesZ }) => {
         // `center` is a Point parameter — its coords are not bound leaves, so
         // read them as plain numbers. `length` and the angles ARE bound Scalar
         // leaves, so keep them raw and build with the math builders (via the
@@ -1377,9 +1377,9 @@ export const IsometricCube: ExtensionDef<'Array'> = {
         const ox = center && center.type === 'Point' ? toNumber(center.x) : 0;
         const oy = center && center.type === 'Point' ? toNumber(center.y) : 0;
 
-        const ax = degToRad(angleX);
-        const ay = degToRad(angleY);
-        const az = degToRad(angleZ);
+        const ax = degToRad(degreesX);
+        const ay = degToRad(degreesY);
+        const az = degToRad(degreesZ);
         const half = div(length, 2);
         const nHalf = neg(half);
 
@@ -1442,28 +1442,24 @@ export const IsometricCube: ExtensionDef<'Array'> = {
 };
 
 /**
- * The eight vertices of an axis-aligned cube as a 3×8 row-major `Array`.
- * Inputs: `center` (optional `Point`, default `p0` — the cube's center; z is 0)
- * and `length` (edge length `a`). Each column is one vertex; the vertices are
- * the eight combinations (cx ± a/2, cy ± a/2, ± a/2). Row 0 holds every vertex's
- * x, row 1 the y's, row 2 the z's. Differentiable in `length`. Output: a 3×8
- * `Array` of scalars.
+ * The eight vertices of an origin-centred, axis-aligned cube as a 3×8 row-major
+ * `Array`. Input: `length` (edge length `a`). Each column is one vertex; the
+ * vertices are the eight combinations (± a/2, ± a/2, ± a/2). Row 0 holds every
+ * vertex's x, row 1 the y's, row 2 the z's. The cube is centred at the model
+ * origin — position it when drawing (e.g. via `la-cube-from-array`'s center).
+ * Differentiable in `length`. Output: a 3×8 `Array` of scalars.
  */
 export const GetArrayForCube: ExtensionDef<'Array'> = {
     name: 'GetArrayForCube',
     keyword: 'la-cube-array',
     parameters: [
-        { argName: 'center', type: 'Point', defaultValue: 'p0', variadic: false },
         { argName: 'length', type: 'Scalar', defaultValue: 2, variadic: false },
     ],
     outputType: 'Array',
 
-    compute: ({ center, length }) => {
-        // `center` is a Point parameter; its coords are not bound leaves, so read
-        // them as plain numbers (z is 0). `length` IS a bound Scalar leaf, so
-        // keep it raw and build with the math builders to stay differentiable.
-        const cx = center && center.type === 'Point' ? toNumber(center.x) : 0;
-        const cy = center && center.type === 'Point' ? toNumber(center.y) : 0;
+    compute: ({ length }) => {
+        // `length` is a bound Scalar leaf, so keep it raw and build with the math
+        // builders to stay differentiable.
         const half = div(length, 2);
 
         // Vertex idx picks the sign per axis from its bits: bit set → +half.
@@ -1471,12 +1467,9 @@ export const GetArrayForCube: ExtensionDef<'Array'> = {
         const ys: Differentiable[] = [];
         const zs: Differentiable[] = [];
         for (let idx = 0; idx < 8; idx++) {
-            const sx = (idx & 1) ? half : neg(half);
-            const sy = (idx & 2) ? half : neg(half);
-            const sz = (idx & 4) ? half : neg(half);
-            xs.push(add(cx, sx));
-            ys.push(add(cy, sy));
-            zs.push(sz);
+            xs.push((idx & 1) ? half : neg(half));
+            ys.push((idx & 2) ? half : neg(half));
+            zs.push((idx & 4) ? half : neg(half));
         }
 
         // Row-major 3×8: all x's, then all y's, then all z's.
@@ -1498,21 +1491,24 @@ export const GetArrayForCube: ExtensionDef<'Array'> = {
 /**
  * Draw a cube from its eight 3D vertices via isometric (orthographic) projection.
  * Inputs: `array` (a 3×8 row-major `Array`: row 0 = x's, row 1 = y's, row 2 =
- * z's — the column layout produced by `la-cube-array`). Projects each column to
- * 2D with the true-isometric mapping and joins the eight (hidden) points with
- * the cube's 12 edges, coloured by face group exactly like `la-iso-cube`.
- * Differentiable in the array entries. Throws unless the array is 3×8. Output:
- * an `Array` of the 12 edge `Line`s.
+ * z's — the column layout produced by `la-cube-array`) and `center` (optional
+ * `Point`, default `p0` — the 2D screen position the projected cube is offset
+ * by). Projects each column to 2D with the true-isometric mapping, offsets by
+ * the center, and joins the eight (hidden) points with the cube's 12 edges,
+ * coloured by face group exactly like `la-iso-cube`. Differentiable in the array
+ * entries. Throws unless the array is 3×8. Output: an `Array` of the 12 edge
+ * `Line`s.
  */
 export const GetCubeFromArray: ExtensionDef<'Array'> = {
     name: 'GetCubeFromArray',
     keyword: 'la-cube-from-array',
     parameters: [
         { argName: 'array', type: 'Array', variadic: false },
+        { argName: 'center', type: 'Point', defaultValue: 'p0', variadic: false },
     ],
     outputType: 'Array',
 
-    compute: ({ array }) => {
+    compute: ({ array, center }) => {
         const [rows, cols] = array.shape;
         if (rows !== 3 || cols !== 8) {
             throw new Error(`GetCubeFromArray: expected a 3×8 array, got ${rows}×${cols}`);
@@ -1525,12 +1521,18 @@ export const GetCubeFromArray: ExtensionDef<'Array'> = {
         const ys = array.elements.slice(8, 16);
         const zs = array.elements.slice(16, 24);
 
+        // `center` is a Point parameter — its coords are not bound leaves, so read
+        // them as plain numbers and add them as a 2D screen offset AFTER
+        // projection (so the drawn cube is centred on the point).
+        const ox = center && center.type === 'Point' ? toNumber(center.x) : 0;
+        const oy = center && center.type === 'Point' ? toNumber(center.y) : 0;
+
         const result: Record<string, GeometricNode> = {};
 
         const cornerPoints: PointNode[] = [];
         for (let idx = 0; idx < 8; idx++) {
             const proj = isometricProject(xs[idx], ys[idx], zs[idx]);
-            const p: PointNode = { type: 'Point', x: proj.x, y: proj.y, hidden: true };
+            const p: PointNode = { type: 'Point', x: add(ox, proj.x), y: add(oy, proj.y), hidden: true };
             result[`corner_${idx}`] = p; // top-level auxiliary → gets an id
             cornerPoints.push(p);
         }
@@ -1570,8 +1572,8 @@ export const GetCubeFromArray: ExtensionDef<'Array'> = {
 
 /**
  * Rotate a length-3 3D vector about the X axis, returning the rotated 3D vector.
- * Inputs: `vector` (a length-3 `Array` of scalars) and `angle` (rotation about
- * the X axis in DEGREES). No projection is applied — pipe the result through
+ * Inputs: `vector` (a length-3 `Array` of scalars) and `degrees` (rotation about
+ * the X axis in degrees). No projection is applied — pipe the result through
  * `la-iso-map` to draw it. Differentiable in the vector components and the
  * angle. Throws if the vector isn't length 3. Output: a length-3 `Array`.
  */
@@ -1580,11 +1582,11 @@ export const RotateArray3DX: ExtensionDef<'Array'> = {
     keyword: 'la-rotate-array3d-x',
     parameters: [
         { argName: 'vector', type: 'Array', variadic: false },
-        { argName: 'angle', type: 'Scalar', defaultValue: 0, variadic: false },
+        { argName: 'degrees', type: 'Scalar', defaultValue: 0, variadic: false },
     ],
     outputType: 'Array',
 
-    compute: ({ vector, angle }) => rotatedArray3D(vector, angle, rotateX3D),
+    compute: ({ vector, degrees }) => rotatedArray3D(vector, degrees, rotateX3D),
 };
 
 /** As `la-rotate-array3d-x`, but rotating about the Y axis. */
@@ -1593,11 +1595,11 @@ export const RotateArray3DY: ExtensionDef<'Array'> = {
     keyword: 'la-rotate-array3d-y',
     parameters: [
         { argName: 'vector', type: 'Array', variadic: false },
-        { argName: 'angle', type: 'Scalar', defaultValue: 0, variadic: false },
+        { argName: 'degrees', type: 'Scalar', defaultValue: 0, variadic: false },
     ],
     outputType: 'Array',
 
-    compute: ({ vector, angle }) => rotatedArray3D(vector, angle, rotateY3D),
+    compute: ({ vector, degrees }) => rotatedArray3D(vector, degrees, rotateY3D),
 };
 
 /** As `la-rotate-array3d-x`, but rotating about the Z axis. */
@@ -1606,29 +1608,29 @@ export const RotateArray3DZ: ExtensionDef<'Array'> = {
     keyword: 'la-rotate-array3d-z',
     parameters: [
         { argName: 'vector', type: 'Array', variadic: false },
-        { argName: 'angle', type: 'Scalar', defaultValue: 0, variadic: false },
+        { argName: 'degrees', type: 'Scalar', defaultValue: 0, variadic: false },
     ],
     outputType: 'Array',
 
-    compute: ({ vector, angle }) => rotatedArray3D(vector, angle, rotateZ3D),
+    compute: ({ vector, degrees }) => rotatedArray3D(vector, degrees, rotateZ3D),
 };
 
 /**
  * Shared body for RotateArray3D{X,Y,Z}: rotate a length-3 vector about one axis
  * (via the injected `rotate` helper) and return it as a length-3 `Array`. Array
- * elements and `angle` are bound leaves, so they are read raw and combined with
- * the math builders to stay differentiable.
+ * elements and `degrees` are bound leaves, so they are read raw and combined
+ * with the math builders to stay differentiable.
  */
 function rotatedArray3D(
     vector: any,
-    angle: Differentiable,
-    rotate: (v: Differentiable[], angle: Differentiable) => Differentiable[]
+    degrees: Differentiable,
+    rotate: (v: Differentiable[], angleRad: Differentiable) => Differentiable[]
 ): Record<string, GeometricNode> {
     const v: Differentiable[] = vector.elements;
     if (v.length !== 3) {
         throw new Error(`RotateArray3D: expected a length-3 vector, got ${v.length}`);
     }
-    const rot = rotate([v[0], v[1], v[2]], degToRad(angle));
+    const rot = rotate([v[0], v[1], v[2]], degToRad(degrees));
 
     return {
         main: {
