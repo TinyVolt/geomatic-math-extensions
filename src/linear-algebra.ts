@@ -826,6 +826,97 @@ export const RotationMatrix: ExtensionDef<'Array'> = {
 };
 
 /**
+ * Build a 3×3 `Array` from a row-major list of 9 differentiable entries. Shared
+ * by the RotationMatrix3D{X,Y,Z} builders below.
+ */
+function matrix3x3(values: Differentiable[]): Record<string, GeometricNode> {
+    return {
+        main: {
+            type: 'Array',
+            elementType: 'Scalar',
+            shape: [3, 3],
+            length: 9,
+            elements: values.map((value) => ({ type: 'Scalar', value })),
+        },
+    };
+}
+
+/**
+ * 3×3 rotation matrix about the X axis for an angle in degrees. Input: `angle`
+ * (a scalar, in degrees). Differentiable in `angle`. Output: a 3×3 `Array` of
+ * scalars in row-major order:
+ *   [[1, 0, 0], [0, cos θ, -sin θ], [0, sin θ, cos θ]].
+ * The 3D analogue of `la-rotation-matrix`.
+ */
+export const RotationMatrix3DX: ExtensionDef<'Array'> = {
+    name: 'RotationMatrix3DX',
+    keyword: 'la-rotation-matrix3d-x',
+    parameters: [
+        { argName: 'angle', type: 'Scalar', variadic: false },
+    ],
+    outputType: 'Array',
+
+    compute: ({ angle }) => {
+        const theta = degToRad(angle);
+        const c = cos(theta);
+        const s = sin(theta);
+        return matrix3x3([
+            1, 0, 0,
+            0, c, neg(s),
+            0, s, c,
+        ]);
+    },
+};
+
+/**
+ * 3×3 rotation matrix about the Y axis for an angle in degrees. Row-major:
+ *   [[cos θ, 0, sin θ], [0, 1, 0], [-sin θ, 0, cos θ]]. See `la-rotation-matrix3d-x`.
+ */
+export const RotationMatrix3DY: ExtensionDef<'Array'> = {
+    name: 'RotationMatrix3DY',
+    keyword: 'la-rotation-matrix3d-y',
+    parameters: [
+        { argName: 'angle', type: 'Scalar', variadic: false },
+    ],
+    outputType: 'Array',
+
+    compute: ({ angle }) => {
+        const theta = degToRad(angle);
+        const c = cos(theta);
+        const s = sin(theta);
+        return matrix3x3([
+            c, 0, s,
+            0, 1, 0,
+            neg(s), 0, c,
+        ]);
+    },
+};
+
+/**
+ * 3×3 rotation matrix about the Z axis for an angle in degrees. Row-major:
+ *   [[cos θ, -sin θ, 0], [sin θ, cos θ, 0], [0, 0, 1]]. See `la-rotation-matrix3d-x`.
+ */
+export const RotationMatrix3DZ: ExtensionDef<'Array'> = {
+    name: 'RotationMatrix3DZ',
+    keyword: 'la-rotation-matrix3d-z',
+    parameters: [
+        { argName: 'angle', type: 'Scalar', variadic: false },
+    ],
+    outputType: 'Array',
+
+    compute: ({ angle }) => {
+        const theta = degToRad(angle);
+        const c = cos(theta);
+        const s = sin(theta);
+        return matrix3x3([
+            c, neg(s), 0,
+            s, c, 0,
+            0, 0, 1,
+        ]);
+    },
+};
+
+/**
  * Dot product of two equal-length vectors: Σ aᵢ·bᵢ.
  * Inputs: `a`, `b` (length-n `Array`s of scalars). Throws if the lengths
  * differ. Output: a `Scalar`.
@@ -1175,15 +1266,17 @@ export const OrthographicAxes: ExtensionDef<'Array'> = {
     keyword: 'la-ortho-axes',
     parameters: [
         { argName: 'origin', type: 'Point', defaultValue: 'p0', variadic: false },
+        { argName: 'length', type: 'Scalar', defaultValue: ISO_AXIS_LEN, variadic: false },
     ],
     outputType: 'Array',
 
-    compute: ({ origin }) => {
+    compute: ({ origin, length }) => {
         // `origin` is a Point parameter; its coordinates are not bound as
         // symbolic leaves, so read them as plain numbers (there is nothing to
         // backprop through here — the axes are fixed geometry).
         const ox = origin && origin.type === 'Point' ? toNumber(origin.x) : 0;
         const oy = origin && origin.type === 'Point' ? toNumber(origin.y) : 0;
+        const len = toNumber(length);
 
         // Screen directions of the three 3D unit axes under isometric projection.
         const dirs: Array<[number, number]> = [
@@ -1200,8 +1293,8 @@ export const OrthographicAxes: ExtensionDef<'Array'> = {
             const p1: PointNode = { type: 'Point', x: ox, y: oy, hidden: true };
             const p2: PointNode = {
                 type: 'Point',
-                x: ox + dx * ISO_AXIS_LEN,
-                y: oy + dy * ISO_AXIS_LEN,
+                x: ox + dx * len,
+                y: oy + dy * len,
                 hidden: true,
             };
             result[`p1_${i}`] = p1;
@@ -1325,6 +1418,133 @@ export const IsometricCube: ExtensionDef<'Array'> = {
                     const stroke = bit === 4
                         ? ISO_CONNECT_COLOR                       // connectors ⟂ the two faces
                         : (a & 4) ? ISO_FACE_COLOR : ISO_FAR_FACE_COLOR; // near vs. far face
+                    const line: LineNode = {
+                        type: 'Line',
+                        p1: cornerPoints[a],  // same objects by identity
+                        p2: cornerPoints[b],
+                        stroke,
+                    };
+                    result[`edge_${a}_${b}`] = line;
+                    lines.push(line);
+                }
+            }
+        }
+
+        result.main = {
+            type: 'Array',
+            elementType: 'Line',
+            shape: [lines.length],
+            length: lines.length,
+            elements: lines,
+        };
+        return result;
+    },
+};
+
+/**
+ * The eight vertices of an axis-aligned cube as a 3×8 row-major `Array`.
+ * Inputs: `center` (optional `Point`, default `p0` — the cube's center; z is 0)
+ * and `length` (edge length `a`). Each column is one vertex; the vertices are
+ * the eight combinations (cx ± a/2, cy ± a/2, ± a/2). Row 0 holds every vertex's
+ * x, row 1 the y's, row 2 the z's. Differentiable in `length`. Output: a 3×8
+ * `Array` of scalars.
+ */
+export const GetArrayForCube: ExtensionDef<'Array'> = {
+    name: 'GetArrayForCube',
+    keyword: 'la-cube-array',
+    parameters: [
+        { argName: 'center', type: 'Point', defaultValue: 'p0', variadic: false },
+        { argName: 'length', type: 'Scalar', defaultValue: 2, variadic: false },
+    ],
+    outputType: 'Array',
+
+    compute: ({ center, length }) => {
+        // `center` is a Point parameter; its coords are not bound leaves, so read
+        // them as plain numbers (z is 0). `length` IS a bound Scalar leaf, so
+        // keep it raw and build with the math builders to stay differentiable.
+        const cx = center && center.type === 'Point' ? toNumber(center.x) : 0;
+        const cy = center && center.type === 'Point' ? toNumber(center.y) : 0;
+        const half = div(length, 2);
+
+        // Vertex idx picks the sign per axis from its bits: bit set → +half.
+        const xs: Differentiable[] = [];
+        const ys: Differentiable[] = [];
+        const zs: Differentiable[] = [];
+        for (let idx = 0; idx < 8; idx++) {
+            const sx = (idx & 1) ? half : neg(half);
+            const sy = (idx & 2) ? half : neg(half);
+            const sz = (idx & 4) ? half : neg(half);
+            xs.push(add(cx, sx));
+            ys.push(add(cy, sy));
+            zs.push(sz);
+        }
+
+        // Row-major 3×8: all x's, then all y's, then all z's.
+        const elements: ScalarNode[] = [...xs, ...ys, ...zs]
+            .map((value) => ({ type: 'Scalar', value }));
+
+        return {
+            main: {
+                type: 'Array',
+                elementType: 'Scalar',
+                shape: [3, 8],
+                length: 24,
+                elements,
+            },
+        };
+    },
+};
+
+/**
+ * Draw a cube from its eight 3D vertices via isometric (orthographic) projection.
+ * Inputs: `array` (a 3×8 row-major `Array`: row 0 = x's, row 1 = y's, row 2 =
+ * z's — the column layout produced by `la-cube-array`). Projects each column to
+ * 2D with the true-isometric mapping and joins the eight (hidden) points with
+ * the cube's 12 edges, coloured by face group exactly like `la-iso-cube`.
+ * Differentiable in the array entries. Throws unless the array is 3×8. Output:
+ * an `Array` of the 12 edge `Line`s.
+ */
+export const GetCubeFromArray: ExtensionDef<'Array'> = {
+    name: 'GetCubeFromArray',
+    keyword: 'la-cube-from-array',
+    parameters: [
+        { argName: 'array', type: 'Array', variadic: false },
+    ],
+    outputType: 'Array',
+
+    compute: ({ array }) => {
+        const [rows, cols] = array.shape;
+        if (rows !== 3 || cols !== 8) {
+            throw new Error(`GetCubeFromArray: expected a 3×8 array, got ${rows}×${cols}`);
+        }
+
+        // Array elements are bound leaves; pass them raw into `isometricProject`
+        // (which builds with the math builders) so the cube backprops through the
+        // vertex coordinates. Rows are x's, y's, z's; column idx is one vertex.
+        const xs = array.elements.slice(0, 8);
+        const ys = array.elements.slice(8, 16);
+        const zs = array.elements.slice(16, 24);
+
+        const result: Record<string, GeometricNode> = {};
+
+        const cornerPoints: PointNode[] = [];
+        for (let idx = 0; idx < 8; idx++) {
+            const proj = isometricProject(xs[idx], ys[idx], zs[idx]);
+            const p: PointNode = { type: 'Point', x: proj.x, y: proj.y, hidden: true };
+            result[`corner_${idx}`] = p; // top-level auxiliary → gets an id
+            cornerPoints.push(p);
+        }
+
+        // Edge grouping/colours match `la-iso-cube`: near z-face, far z-face, and
+        // the connectors (bit-4 edges) between the two parallel faces.
+        const lines: LineNode[] = [];
+        for (let a = 0; a < 8; a++) {
+            for (const bit of [1, 2, 4]) {
+                const b = a ^ bit;
+                if (a < b) {
+                    const stroke = bit === 4
+                        ? ISO_CONNECT_COLOR
+                        : (a & 4) ? ISO_FACE_COLOR : ISO_FAR_FACE_COLOR;
                     const line: LineNode = {
                         type: 'Line',
                         p1: cornerPoints[a],  // same objects by identity
