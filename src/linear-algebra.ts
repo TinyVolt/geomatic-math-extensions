@@ -1349,75 +1349,111 @@ export const IsometricCube: ExtensionDef<'Array'> = {
 };
 
 /**
- * Rotate a 3D vector about the X axis, then draw it isometrically as an arrow.
+ * Rotate a length-3 3D vector about the X axis, returning the rotated 3D vector.
  * Inputs: `vector` (a length-3 `Array` of scalars) and `angle` (rotation about
- * the X axis in DEGREES). Rotates the vector in 3D, projects it with the
- * true-isometric mapping, and draws an `Arrow` from the projected origin to the
- * projected tip. Differentiable in the vector components and the angle. Throws
- * if the vector isn't length 3. Output: an `Arrow` node.
+ * the X axis in DEGREES). No projection is applied — pipe the result through
+ * `la-iso-map` to draw it. Differentiable in the vector components and the
+ * angle. Throws if the vector isn't length 3. Output: a length-3 `Array`.
  */
-export const RotateVector3DX: ExtensionDef<'Arrow'> = {
-    name: 'RotateVector3DX',
-    keyword: 'la-rotate-vec3d-x',
+export const RotateArray3DX: ExtensionDef<'Array'> = {
+    name: 'RotateArray3DX',
+    keyword: 'la-rotate-array3d-x',
     parameters: [
         { argName: 'vector', type: 'Array', variadic: false },
         { argName: 'angle', type: 'Scalar', defaultValue: 0, variadic: false },
     ],
-    outputType: 'Arrow',
+    outputType: 'Array',
 
-    compute: ({ vector, angle }) => rotatedVector3DArrow(vector, angle, rotateX3D),
+    compute: ({ vector, angle }) => rotatedArray3D(vector, angle, rotateX3D),
 };
 
-/** As `la-rotate-vec3d-x`, but rotating about the Y axis. */
-export const RotateVector3DY: ExtensionDef<'Arrow'> = {
-    name: 'RotateVector3DY',
-    keyword: 'la-rotate-vec3d-y',
+/** As `la-rotate-array3d-x`, but rotating about the Y axis. */
+export const RotateArray3DY: ExtensionDef<'Array'> = {
+    name: 'RotateArray3DY',
+    keyword: 'la-rotate-array3d-y',
     parameters: [
         { argName: 'vector', type: 'Array', variadic: false },
         { argName: 'angle', type: 'Scalar', defaultValue: 0, variadic: false },
     ],
-    outputType: 'Arrow',
+    outputType: 'Array',
 
-    compute: ({ vector, angle }) => rotatedVector3DArrow(vector, angle, rotateY3D),
+    compute: ({ vector, angle }) => rotatedArray3D(vector, angle, rotateY3D),
 };
 
-/** As `la-rotate-vec3d-x`, but rotating about the Z axis. */
-export const RotateVector3DZ: ExtensionDef<'Arrow'> = {
-    name: 'RotateVector3DZ',
-    keyword: 'la-rotate-vec3d-z',
+/** As `la-rotate-array3d-x`, but rotating about the Z axis. */
+export const RotateArray3DZ: ExtensionDef<'Array'> = {
+    name: 'RotateArray3DZ',
+    keyword: 'la-rotate-array3d-z',
     parameters: [
         { argName: 'vector', type: 'Array', variadic: false },
         { argName: 'angle', type: 'Scalar', defaultValue: 0, variadic: false },
     ],
-    outputType: 'Arrow',
+    outputType: 'Array',
 
-    compute: ({ vector, angle }) => rotatedVector3DArrow(vector, angle, rotateZ3D),
+    compute: ({ vector, angle }) => rotatedArray3D(vector, angle, rotateZ3D),
 };
 
 /**
- * Shared body for RotateVector3D{X,Y,Z}: rotate a length-3 vector about one axis
- * (via the injected `rotate` helper), project it isometrically, and return the
- * Arrow result. Array elements and `angle` are bound leaves, so they are read
- * raw and combined with the math builders to stay differentiable.
+ * Shared body for RotateArray3D{X,Y,Z}: rotate a length-3 vector about one axis
+ * (via the injected `rotate` helper) and return it as a length-3 `Array`. Array
+ * elements and `angle` are bound leaves, so they are read raw and combined with
+ * the math builders to stay differentiable.
  */
-function rotatedVector3DArrow(
+function rotatedArray3D(
     vector: any,
     angle: Differentiable,
     rotate: (v: Differentiable[], angle: Differentiable) => Differentiable[]
 ): Record<string, GeometricNode> {
     const v: Differentiable[] = vector.elements;
     if (v.length !== 3) {
-        throw new Error(`RotateVector3D: expected a length-3 vector, got ${v.length}`);
+        throw new Error(`RotateArray3D: expected a length-3 vector, got ${v.length}`);
     }
     const rot = rotate([v[0], v[1], v[2]], degToRad(angle));
-    const tip = isometricProject(rot[0], rot[1], rot[2]);
 
-    const result: Record<string, GeometricNode> = {};
-    const p1: PointNode = { type: 'Point', x: 0, y: 0, hidden: true };
-    const p2: PointNode = { type: 'Point', x: tip.x, y: tip.y, hidden: true };
-    result['p1'] = p1;
-    result['p2'] = p2;
-    result.main = { type: 'Arrow', p1, p2, label: '', stroke: ISO_VEC_COLOR };
-    return result;
+    return {
+        main: {
+            type: 'Array',
+            elementType: 'Scalar',
+            shape: [3],
+            length: 3,
+            elements: rot.map((value) => ({ type: 'Scalar', value })),
+        },
+    };
 }
+
+/**
+ * Draw a 3D vector as an arrow via isometric (orthographic) projection.
+ * Inputs: `vector` (a length-3 `Array` of scalars). Projects (0,0,0) and the
+ * vector with the true-isometric mapping and draws an `Arrow` from the projected
+ * origin to the projected tip. Differentiable in the vector components. Throws
+ * if the vector isn't length 3. Output: an `Arrow` node. See `la-vec3d` for the
+ * three-scalar-input variant.
+ */
+export const IsometricMap: ExtensionDef<'Arrow'> = {
+    name: 'IsometricMap',
+    keyword: 'la-iso-map',
+    parameters: [
+        { argName: 'vector', type: 'Array', variadic: false },
+    ],
+    outputType: 'Arrow',
+
+    compute: ({ vector }) => {
+        // Array elements are bound leaves; pass them raw into `isometricProject`
+        // (which builds with the math builders) so the arrow backprops through
+        // the components.
+        const v: Differentiable[] = vector.elements;
+        if (v.length !== 3) {
+            throw new Error(`IsometricMap: expected a length-3 vector, got ${v.length}`);
+        }
+        const tip = isometricProject(v[0], v[1], v[2]);
+
+        const result: Record<string, GeometricNode> = {};
+        const p1: PointNode = { type: 'Point', x: 0, y: 0, hidden: true };
+        const p2: PointNode = { type: 'Point', x: tip.x, y: tip.y, hidden: true };
+        result['p1'] = p1;
+        result['p2'] = p2;
+        result.main = { type: 'Arrow', p1, p2, label: '', stroke: ISO_VEC_COLOR };
+        return result;
+    },
+};
 
